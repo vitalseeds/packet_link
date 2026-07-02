@@ -16,10 +16,12 @@ export const CONFIG = {
 
   // Logo position/size as a fraction of the reference packet photo's
   // width/height. xPercent/yPercent is the centre of the logo circle.
+  // Measured from assets/reference-packet.jpg (714 x 1158) via
+  // assets/calibrate.html.
   logo: {
-    xPercent: 0.52,
-    yPercent: 0.43,
-    diameterPercent: 0.28,
+    xPercent: 0.5098,
+    yPercent: 0.2231,
+    diameterPercent: 0.4724,
   },
 
   // Where the SKU sits on a straightened packet (top-left origin box, as a

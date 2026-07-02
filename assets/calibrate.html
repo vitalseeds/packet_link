@@ -88,8 +88,11 @@
       const yPercent = c.y / canvas.height;
       const diameterPercent = diameter / canvas.width;
 
+      // Every line here is valid to paste as-is over the `logo: { ... }`
+      // block in js/config.js — including the image-size note, which is
+      // commented out so a straight copy-paste can't break the syntax.
       output.textContent =
-        `image size: ${canvas.width} x ${canvas.height}\n\n` +
+        `// image size: ${canvas.width} x ${canvas.height}\n` +
         `logo: {\n` +
         `  xPercent: ${xPercent.toFixed(4)},\n` +
         `  yPercent: ${yPercent.toFixed(4)},\n` +
