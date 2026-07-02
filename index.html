@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vital Seeds packet scanner</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Vital Seeds packet scanner</h1>
+    <p>Point your camera at a packet to read its SKU.</p>
+  </header>
+
+  <main>
+    <div class="camera-wrap">
+      <video id="video" playsinline autoplay muted></video>
+      <canvas id="overlay"></canvas>
+    </div>
+
+    <button id="startBtn">Start scanning</button>
+    <p id="status" role="status"></p>
+
+    <section id="result" hidden>
+      <h2>SKU: <span id="resultSku">—</span></h2>
+      <img id="resultThumb" alt="Cropped SKU region" />
+      <p>Raw OCR text: <code id="resultRaw"></code></p>
+      <button id="rescanBtn">Scan another packet</button>
+    </section>
+  </main>
+
+  <!-- OpenCV.js: provides ORB feature matching + perspective transforms -->
+  <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+  <!-- Tesseract.js: provides OCR -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+// Tunable numbers for the whole pipeline live here so the rest of the code
+// doesn't have magic numbers scattered through it.
+//
+// The CALIBRATION block describes where the Vital Seeds logo sits on the
+// packet template, measured as percentages of the reference photo
+// (assets/reference-packet.jpg). Every Vital Seeds packet shares the same
+// layout, so one reference photo + these percentages is enough to locate
+// the logo — and from the logo, the whole packet — on any packet.
+//
+// Use assets/calibrate.html against your own reference photo to (re)measure
+// these values if you replace the reference image.
+export const CONFIG = {
+  paths: {
+    referencePacketImage: 'assets/reference-packet.jpg',
+  },
+
+  // Logo position/size as a fraction of the reference packet photo's
+  // width/height. xPercent/yPercent is the centre of the logo circle.
+  logo: {
+    xPercent: 0.52,
+    yPercent: 0.43,
+    diameterPercent: 0.28,
+  },
+
+  // Where the SKU sits on a straightened packet (top-left origin box, as a
+  // fraction of the straightened packet's width/height).
+  ocrCrop: { xPercent: 0, yPercent: 0.75, wPercent: 0.25, hPercent: 0.25 },
+
+  // Size (px) to render the straightened packet at. Taller/wider gives the
+  // OCR step more pixels to work with, at the cost of a bit more CPU.
+  output: { width: 700, aspect: 1.5 }, // height = width * aspect
+
+  detection: {
+    orbFeatures: 500,
+    // Lowe's ratio test threshold for filtering ambiguous matches.
+    loweRatio: 0.75,
+    // Minimum "good" keypoint matches before we trust a homography.
+    minGoodMatches: 12,
+    ransacReprojThreshold: 5,
+    // Require this many consecutive frames with a near-identical packet
+    // outline before running OCR, so we don't OCR a blurry/jittery frame.
+    stableFramesRequired: 3,
+    // Max pixel drift allowed between frames to still count as "stable".
+    stableDriftPx: 15,
+    scanIntervalMs: 350,
+  },
+};
