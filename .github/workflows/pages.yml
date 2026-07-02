@@ -38,12 +38,14 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
-          # Without this, re-running a failed attempt of the same workflow
-          # run (rather than pushing a fresh commit) leaves the previous
-          # attempt's artifact in place, and this step's fresh upload then
-          # collides with it — deploy-pages then refuses to pick one,
-          # failing with "Multiple artifacts named 'github-pages' were
-          # unexpectedly found for this workflow run." Observed twice.
-          overwrite: true
+          # NOTE: tried adding `overwrite: true` here to stop a re-run of a
+          # failed attempt from colliding with the previous attempt's
+          # leftover artifact ("Multiple artifacts named 'github-pages'
+          # were unexpectedly found for this workflow run", observed
+          # twice) — but this action doesn't expose that input (only
+          # name/path/retention-days; GitHub just warns and ignores it).
+          # Avoid using "Re-run failed jobs" on this workflow in the
+          # GitHub UI; push a new commit instead, which always starts a
+          # clean run with no leftover artifact to collide with.
       - id: deployment
         uses: actions/deploy-pages@v4
