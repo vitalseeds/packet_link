@@ -10,8 +10,36 @@
 // Returns [topLeft, topRight, bottomRight, bottomLeft] in frame pixel space,
 // or null if nothing rectangular enough was found.
 export function detect(frameMat, CONFIG) {
+  // Canny/dilate/findContours all cost roughly linearly in pixel count, but
+  // "is there a big rectangle here" doesn't need full sensor resolution —
+  // search on a downscaled copy and rescale the result back up, so this
+  // function's contract (full-frame-space in, full-frame-space out) is
+  // unchanged for every caller.
+  const longSide = Math.max(frameMat.rows, frameMat.cols);
+  const scale = Math.min(1, CONFIG.detection.detectScaleMaxDim / longSide);
+  let workMat = frameMat;
+  if (scale < 1) {
+    workMat = new cv.Mat();
+    cv.resize(
+      frameMat,
+      workMat,
+      new cv.Size(Math.round(frameMat.cols * scale), Math.round(frameMat.rows * scale)),
+      0,
+      0,
+      cv.INTER_AREA
+    );
+  }
+
   const gray = new cv.Mat();
-  cv.cvtColor(frameMat, gray, cv.COLOR_RGBA2GRAY);
+  cv.cvtColor(workMat, gray, cv.COLOR_RGBA2GRAY);
+
+  // Contrast-limited adaptive histogram equalization: helps a faint true
+  // packet edge hold up against weak/uneven contrast (e.g. outdoors),
+  // before it has a chance to lose out to the packet's own printed inner
+  // border (see the RETR_EXTERNAL comment below).
+  if (CONFIG.detection.useClahe) {
+    applyClahe(gray, CONFIG.detection.claheClipLimit, CONFIG.detection.claheTileGridSize);
+  }
 
   const blurred = new cv.Mat();
   cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
@@ -37,7 +65,7 @@ export function detect(frameMat, CONFIG) {
   const hierarchy = new cv.Mat();
   cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-  const frameArea = frameMat.rows * frameMat.cols;
+  const frameArea = workMat.rows * workMat.cols;
   let best = null;
   let bestArea = 0;
 
@@ -72,7 +100,25 @@ export function detect(frameMat, CONFIG) {
   contours.delete();
   hierarchy.delete();
 
+  if (workMat !== frameMat) {
+    workMat.delete();
+    if (best) {
+      best = best.map((p) => ({ x: p.x / scale, y: p.y / scale }));
+    }
+  }
+
   return best;
+}
+
+// OpenCV.js builds have exposed CLAHE under two different names across
+// versions (`cv.CLAHE` as a constructor vs. a `cv.createCLAHE` factory) —
+// tolerate either rather than assuming one, in-place on `mat`.
+function applyClahe(mat, clipLimit, tileGridSize) {
+  const tileSize = new cv.Size(tileGridSize, tileGridSize);
+  const clahe =
+    typeof cv.CLAHE === 'function' ? new cv.CLAHE(clipLimit, tileSize) : cv.createCLAHE(clipLimit, tileSize);
+  clahe.apply(mat, mat);
+  clahe.delete();
 }
 
 function matToPoints(mat) {

@@ -152,7 +152,8 @@ function scanFrame() {
       return;
     }
 
-    const straightCanvas = geometry.warpPacketToCanvas(frameMat, corners, CONFIG);
+    const expandedCorners = geometry.expandCorners(corners, CONFIG.output.cornerMarginPercent);
+    const straightCanvas = geometry.warpPacketToCanvas(frameMat, expandedCorners, CONFIG);
     frameMat.delete();
 
     pauseScan();
@@ -195,15 +196,21 @@ async function handleStableDetection(straightCanvas) {
   const skuCanvas = geometry.cropRegion(straightCanvas, CONFIG.skuCrop, CONFIG.skuCropUpscale);
   const titleCanvas = geometry.cropRegion(straightCanvas, CONFIG.titleCrop);
 
-  const skuText = await recognizeSkuText(skuCanvas);
-  const titleText = await recognizeTitleText(titleCanvas);
+  const skuOcrCanvas = geometry.preprocessForOcr(skuCanvas, CONFIG.ocr);
+  const titleOcrCanvas = geometry.preprocessForOcr(titleCanvas, CONFIG.ocr);
+
+  const skuText = await recognizeSkuText(skuOcrCanvas);
+  const titleText = await recognizeTitleText(titleOcrCanvas);
 
   const sku = extractSku(skuText);
   const title = extractTitle(titleText);
 
-  resultThumb.src = skuCanvas.toDataURL();
+  // Show what OCR actually saw (post-preprocessing), not the raw crop —
+  // makes it obvious in the results panel whether CLAHE/thresholding is
+  // helping or hurting on a given packet/lighting condition.
+  resultThumb.src = skuOcrCanvas.toDataURL();
   resultRaw.textContent = skuText.trim() || '(no text read)';
-  resultTitleThumb.src = titleCanvas.toDataURL();
+  resultTitleThumb.src = titleOcrCanvas.toDataURL();
   resultTitleRaw.textContent = titleText.trim() || '(no text read)';
   resultSku.textContent = sku || '—';
 

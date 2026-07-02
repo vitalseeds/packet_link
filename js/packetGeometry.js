@@ -9,6 +9,24 @@ function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+// The detected quad is often slightly tight against the packet's true
+// physical edge (a rounded corner simplifying inward, or a few pixels of
+// weak-contrast edge not quite making it into the contour). Since the
+// straightened canvas's bounds come directly from these corners, that lost
+// edge is baked in before any crop even runs — and skuCrop (xPercent: 0)
+// has no margin left to absorb it, clipping the first SKU letter. Scaling
+// each corner outward from the quad's own centroid gives every crop a
+// small buffer against that.
+export function expandCorners(corners, marginPercent) {
+  const cx = corners.reduce((sum, p) => sum + p.x, 0) / corners.length;
+  const cy = corners.reduce((sum, p) => sum + p.y, 0) / corners.length;
+  const factor = 1 + marginPercent;
+  return corners.map((p) => ({
+    x: cx + (p.x - cx) * factor,
+    y: cy + (p.y - cy) * factor,
+  }));
+}
+
 // Warps the quadrilateral [topLeft, topRight, bottomRight, bottomLeft] in
 // frameMat into an upright rectangular canvas, undoing rotation/perspective.
 // The output size is derived from the corners' own edge lengths (not a
@@ -67,4 +85,44 @@ export function cropRegion(straightCanvas, rect, scale = 1) {
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(straightCanvas, sx, sy, sw, sh, 0, 0, out.width, out.height);
   return out;
+}
+
+// Contrast/binarization preprocessing for a crop just before OCR — separate
+// from cropRegion() above since this needs OpenCV.js rather than plain
+// canvas 2D drawing. Grayscale + CLAHE is a safe default contrast boost;
+// thresholding is opt-in (see ocrConfig.useThreshold's comment in
+// js/config.js) since a global Otsu threshold can damage accuracy on a
+// busy/colorful packet background.
+export function preprocessForOcr(canvas, ocrConfig) {
+  const src = cv.imread(canvas);
+  const gray = new cv.Mat();
+  cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+  if (ocrConfig.useClahe) {
+    applyClahe(gray, ocrConfig.claheClipLimit, ocrConfig.claheTileGridSize);
+  }
+
+  if (ocrConfig.useThreshold) {
+    cv.threshold(gray, gray, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+  }
+
+  const out = document.createElement('canvas');
+  out.width = gray.cols;
+  out.height = gray.rows;
+  cv.imshow(out, gray);
+
+  src.delete();
+  gray.delete();
+  return out;
+}
+
+// OpenCV.js builds have exposed CLAHE under two different names across
+// versions (`cv.CLAHE` as a constructor vs. a `cv.createCLAHE` factory) —
+// tolerate either rather than assuming one, in-place on `mat`.
+function applyClahe(mat, clipLimit, tileGridSize) {
+  const tileSize = new cv.Size(tileGridSize, tileGridSize);
+  const clahe =
+    typeof cv.CLAHE === 'function' ? new cv.CLAHE(clipLimit, tileSize) : cv.createCLAHE(clipLimit, tileSize);
+  clahe.apply(mat, mat);
+  clahe.delete();
 }
