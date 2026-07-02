@@ -22,24 +22,20 @@
     <p id="status" role="status"></p>
 
     <section id="result" hidden>
-      <h2>
-        <a id="resultSkuLink" target="_blank" rel="noopener"></a>
-        <button
-          id="infoBtn"
-          type="button"
-          class="info-btn"
-          aria-expanded="false"
-          aria-label="Show scan details"
-          title="Show scan details"
-        >
-          i
-        </button>
-      </h2>
-      <div id="resultDetails" hidden>
-        <p>SKU: <span id="resultSku">—</span></p>
-        <img id="resultThumb" alt="Cropped SKU region" />
-        <p>Raw OCR text: <code id="resultRaw"></code></p>
+      <h2><a id="resultLink" target="_blank" rel="noopener"></a></h2>
+      <p>SKU: <span id="resultSku">—</span></p>
+      <div class="result-crops">
+        <div>
+          <p class="crop-label">Title crop</p>
+          <img id="resultTitleThumb" alt="Cropped title region" />
+        </div>
+        <div>
+          <p class="crop-label">SKU crop</p>
+          <img id="resultThumb" alt="Cropped SKU region" />
+        </div>
       </div>
+      <p>Raw title text: <code id="resultTitleRaw"></code></p>
+      <p>Raw SKU text: <code id="resultRaw"></code></p>
     </section>
   </main>
 
@@ -63,6 +59,6 @@
        a fresh fetch of the *whole* module graph on the next deploy —
        without it, a browser can keep serving old cached JS indefinitely
        even after index.html itself reloads. -->
-  <script type="module" src="js/main.js?v=0.3.7"></script>
+  <script type="module" src="js/main.js?v=0.4.0"></script>
 </body>
 </html>

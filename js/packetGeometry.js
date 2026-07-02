@@ -48,18 +48,23 @@ export function warpPacketToCanvas(frameMat, corners, CONFIG) {
   return canvas;
 }
 
-// Crops the region of a straightened packet canvas that holds the SKU text
-// (bottom-left, per the fixed Vital Seeds packet layout).
-export function cropOcrRegion(straightCanvas, CONFIG) {
-  const { xPercent, yPercent, wPercent, hPercent } = CONFIG.ocrCrop;
+// Crops a region of a straightened packet canvas, given as percentages of
+// its width/height (e.g. CONFIG.skuCrop or CONFIG.titleCrop). `scale`
+// upscales the crop — useful for small text like the SKU, where OCR
+// accuracy benefits from more pixels than the crop naturally has.
+export function cropRegion(straightCanvas, rect, scale = 1) {
+  const { xPercent, yPercent, wPercent, hPercent } = rect;
   const sx = straightCanvas.width * xPercent;
   const sy = straightCanvas.height * yPercent;
   const sw = straightCanvas.width * wPercent;
   const sh = straightCanvas.height * hPercent;
 
   const out = document.createElement('canvas');
-  out.width = sw;
-  out.height = sh;
-  out.getContext('2d').drawImage(straightCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  out.width = sw * scale;
+  out.height = sh * scale;
+  const ctx = out.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(straightCanvas, sx, sy, sw, sh, 0, 0, out.width, out.height);
   return out;
 }

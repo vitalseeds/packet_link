@@ -11,8 +11,9 @@ const cacheBust = new URL(import.meta.url).search;
 const { CONFIG, VERSION } = await import(`./config.js${cacheBust}`);
 const rectDetector = await import(`./rectDetector.js${cacheBust}`);
 const geometry = await import(`./packetGeometry.js${cacheBust}`);
-const { initOcr, recognizeText } = await import(`./ocr.js${cacheBust}`);
+const { initOcr, recognizeSkuText, recognizeTitleText } = await import(`./ocr.js${cacheBust}`);
 const { extractSku, skuSearchUrl } = await import(`./sku.js${cacheBust}`);
+const { extractTitle } = await import(`./title.js${cacheBust}`);
 
 document.getElementById('version').textContent = VERSION;
 // Dev convenience: forces a fresh reload of index.html itself (a browser
@@ -25,13 +26,13 @@ const overlayCtx = overlay.getContext('2d');
 const workCanvas = document.createElement('canvas'); // off-screen scratch space
 const statusEl = document.getElementById('status');
 const scanBtn = document.getElementById('scanBtn');
-const infoBtn = document.getElementById('infoBtn');
 const resultPanel = document.getElementById('result');
-const resultDetails = document.getElementById('resultDetails');
-const resultThumb = document.getElementById('resultThumb');
+const resultLink = document.getElementById('resultLink');
 const resultSku = document.getElementById('resultSku');
-const resultSkuLink = document.getElementById('resultSkuLink');
+const resultThumb = document.getElementById('resultThumb');
 const resultRaw = document.getElementById('resultRaw');
+const resultTitleThumb = document.getElementById('resultTitleThumb');
+const resultTitleRaw = document.getElementById('resultTitleRaw');
 
 let scanTimer = null;
 let busy = false;
@@ -52,12 +53,6 @@ scanBtn.addEventListener('click', () => {
   } else {
     start();
   }
-});
-
-infoBtn.addEventListener('click', () => {
-  const showing = resultDetails.hidden;
-  resultDetails.hidden = !showing;
-  infoBtn.setAttribute('aria-expanded', String(showing));
 });
 
 async function start() {
@@ -92,8 +87,6 @@ async function start() {
 
 function resume() {
   resultPanel.hidden = true;
-  resultDetails.hidden = true;
-  infoBtn.setAttribute('aria-expanded', 'false');
   // The green outline from the last lock-on stays drawn until the next
   // scanFrame() tick otherwise — visible on top of the live video and
   // easy to mistake for a frozen feed, since nothing else clears it
@@ -195,24 +188,30 @@ function cornersAreStable(current, previous) {
 async function handleStableDetection(straightCanvas) {
   setStatus('Packet locked — reading label…');
 
-  const ocrCanvas = geometry.cropOcrRegion(straightCanvas, CONFIG);
-  const text = await recognizeText(ocrCanvas);
-  const sku = extractSku(text);
+  const skuCanvas = geometry.cropRegion(straightCanvas, CONFIG.skuCrop, CONFIG.skuCropUpscale);
+  const titleCanvas = geometry.cropRegion(straightCanvas, CONFIG.titleCrop);
 
-  resultThumb.src = ocrCanvas.toDataURL();
-  resultRaw.textContent = text.trim() || '(no text read)';
+  const skuText = await recognizeSkuText(skuCanvas);
+  const titleText = await recognizeTitleText(titleCanvas);
+
+  const sku = extractSku(skuText);
+  const title = extractTitle(titleText);
+
+  resultThumb.src = skuCanvas.toDataURL();
+  resultRaw.textContent = skuText.trim() || '(no text read)';
+  resultTitleThumb.src = titleCanvas.toDataURL();
+  resultTitleRaw.textContent = titleText.trim() || '(no text read)';
+  resultSku.textContent = sku || '—';
 
   if (!sku) {
     setStatus('Could not read a clear SKU. Try again with better light/focus.');
-    resultSku.textContent = '—';
-    resultSkuLink.hidden = true;
-    resultSkuLink.removeAttribute('href');
+    resultLink.hidden = true;
+    resultLink.removeAttribute('href');
   } else {
     setStatus('Done.');
-    resultSku.textContent = sku;
-    resultSkuLink.hidden = false;
-    resultSkuLink.href = skuSearchUrl(sku);
-    resultSkuLink.textContent = `Search (${sku})`;
+    resultLink.hidden = false;
+    resultLink.href = skuSearchUrl(sku);
+    resultLink.textContent = title ? `${title} (${sku})` : `Search (${sku})`;
   }
 
   resultPanel.hidden = false;
