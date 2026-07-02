@@ -203,6 +203,7 @@ async function handleStableDetection(straightCanvas) {
     resultSku.textContent = sku;
     resultSkuLink.hidden = false;
     resultSkuLink.href = skuSearchUrl(sku);
+    resultSkuLink.textContent = `Search (${sku})`;
   }
 
   resultPanel.hidden = false;
