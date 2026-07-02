@@ -38,5 +38,12 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: '.'
+          # Without this, re-running a failed attempt of the same workflow
+          # run (rather than pushing a fresh commit) leaves the previous
+          # attempt's artifact in place, and this step's fresh upload then
+          # collides with it — deploy-pages then refuses to pick one,
+          # failing with "Multiple artifacts named 'github-pages' were
+          # unexpectedly found for this workflow run." Observed twice.
+          overwrite: true
       - id: deployment
         uses: actions/deploy-pages@v4
