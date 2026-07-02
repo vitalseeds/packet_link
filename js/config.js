@@ -17,10 +17,14 @@ export const CONFIG = {
   skuCropUpscale: 3,
 
   // Where the product title (e.g. "NIGELLA - DELFT BLUE") sits — the
-  // largest text on the packet, the first horizontal line below the logo,
-  // roughly a third of the way down. Rough estimate: measure against a
-  // real straightened packet and adjust if it's clipping the title.
-  titleCrop: { xPercent: 0.05, yPercent: 0.3, wPercent: 0.9, hPercent: 0.12 },
+  // largest text on the packet, the first horizontal line below the logo.
+  // Tuned against real straightened-packet photos: yPercent 0.3/hPercent
+  // 0.12 was tall enough to also catch the tail of the curved "SEEDS" logo
+  // text sitting just above the title, which extractTitle then joined onto
+  // the real title (e.g. "SEE FDU i NAPA CARBAGE-JEJU"). Moved down and
+  // shrunk to sit just on the title's own line — may still need further
+  // adjustment for a longer title that wraps to two lines.
+  titleCrop: { xPercent: 0.05, yPercent: 0.34, wPercent: 0.9, hPercent: 0.08 },
 
   output: {
     // Cap on the straightened packet's longest side (px). Higher gives OCR
@@ -32,8 +36,10 @@ export const CONFIG = {
     // no fix, that lost edge is exactly where skuCrop (xPercent: 0) has no
     // margin to spare, and the first SKU letter gets clipped. Growing the
     // quad outward from its own centroid by this fraction before warping
-    // gives every existing crop a small buffer against that, without
-    // needing to recalibrate skuCrop/titleCrop's hand-tuned percentages.
+    // gives every crop a small buffer against that. skuCrop/titleCrop are
+    // still defined as percentages of the *true* packet, not the margin-
+    // inflated canvas — see geometry.remapCropForMargin, which every crop
+    // must be passed through before cropRegion() to correct for this.
     cornerMarginPercent: 0.03,
   },
 
@@ -72,11 +78,15 @@ export const CONFIG = {
     // resolution.
     detectScaleMaxDim: 700,
     // CLAHE (contrast-limited adaptive histogram equalization) run on the
-    // grayscale frame before blur/Canny — helps edge detection hold up in
-    // weak/uneven contrast (e.g. outdoor light), where a faint true outer
-    // edge previously lost out to the packet's own printed inner border
-    // (see rectDetector.js's RETR_EXTERNAL comment).
-    useClahe: true,
+    // grayscale frame before blur/Canny — the idea was to help a faint
+    // true outer edge hold up in weak/uneven contrast (e.g. outdoor
+    // light). In practice it amplified background texture/noise (mat
+    // weave, wood grain, reflections) into enough spurious edges that the
+    // largest-valid-quad candidate flickered between frames, making
+    // detection far more sensitive to hand tremor than before. Off by
+    // default until a version of this proves net-positive; the plumbing
+    // stays so it can be re-tried (e.g. with a lower clip limit).
+    useClahe: false,
     claheClipLimit: 2.0,
     claheTileGridSize: 8,
   },

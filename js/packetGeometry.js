@@ -66,6 +66,33 @@ export function warpPacketToCanvas(frameMat, corners, CONFIG) {
   return canvas;
 }
 
+// expandCorners() above grows the straightened canvas beyond the packet's
+// true edge, which shifts what "0%/100%" mean for every fixed crop rect —
+// they were tuned assuming content fills the canvas edge-to-edge. Because
+// the margin scales the quad by (1 + marginPercent) about its own centroid,
+// and the canvas is sized to fit the *expanded* quad exactly, the true
+// packet edges end up inset from the canvas edges by a fixed fraction:
+// inset = marginPercent / (2 * (1 + marginPercent))
+// (half the growth on each side, expressed as a fraction of the larger
+// canvas). This maps a rect defined in "true packet" percentages (as
+// CONFIG.skuCrop/titleCrop are written) onto that inset region, so they
+// keep meaning what they say regardless of marginPercent — without this,
+// a crop anchored at, say, xPercent 0 would start slightly *inside* the
+// true packet's left edge, silently shaving pixels off whichever edge of
+// the crop is away from center (the exact regression this fixes: SKU text
+// clipping on the right after the margin was added to stop it clipping on
+// the left).
+export function remapCropForMargin(rect, marginPercent) {
+  const inset = marginPercent / (2 * (1 + marginPercent));
+  const span = 1 - 2 * inset;
+  return {
+    xPercent: inset + rect.xPercent * span,
+    yPercent: inset + rect.yPercent * span,
+    wPercent: rect.wPercent * span,
+    hPercent: rect.hPercent * span,
+  };
+}
+
 // Crops a region of a straightened packet canvas, given as percentages of
 // its width/height (e.g. CONFIG.skuCrop or CONFIG.titleCrop). `scale`
 // upscales the crop — useful for small text like the SKU, where OCR

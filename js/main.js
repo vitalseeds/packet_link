@@ -193,8 +193,14 @@ function cornersAreStable(current, previous) {
 async function handleStableDetection(straightCanvas) {
   setStatus('Packet locked — reading label…');
 
-  const skuCanvas = geometry.cropRegion(straightCanvas, CONFIG.skuCrop, CONFIG.skuCropUpscale);
-  const titleCanvas = geometry.cropRegion(straightCanvas, CONFIG.titleCrop);
+  // skuCrop/titleCrop are defined as percentages of the *true* packet, but
+  // the straightened canvas is inflated slightly beyond that (see
+  // expandCorners in scanFrame) — remap before cropping so they still
+  // land in the right place regardless of cornerMarginPercent.
+  const skuRect = geometry.remapCropForMargin(CONFIG.skuCrop, CONFIG.output.cornerMarginPercent);
+  const titleRect = geometry.remapCropForMargin(CONFIG.titleCrop, CONFIG.output.cornerMarginPercent);
+  const skuCanvas = geometry.cropRegion(straightCanvas, skuRect, CONFIG.skuCropUpscale);
+  const titleCanvas = geometry.cropRegion(straightCanvas, titleRect);
 
   const skuOcrCanvas = geometry.preprocessForOcr(skuCanvas, CONFIG.ocr);
   const titleOcrCanvas = geometry.preprocessForOcr(titleCanvas, CONFIG.ocr);
