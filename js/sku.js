@@ -1,13 +1,14 @@
 // Pulls the SKU code (e.g. "XNiDB") out of the raw OCR text from the SKU
 // crop region, which always contains three lines in this fixed order:
-// "<SKU>", "Packed in <year>", "Batch # <n>".
-const SKU_PATTERN = /^[A-Za-z]{3,8}$/;
+// "<SKU>", "Packed in <year>", "Batch # <n>". Real SKUs run from 3 to
+// about 7 characters (confirmed against the catalog), not a fixed length.
+const SKU_PATTERN = /^[A-Za-z]{3,7}$/;
 
 // Words that occasionally get OCR'd off a neighbouring line and happen to
 // satisfy SKU_PATTERN on their own — never real SKUs. A tight SKU crop can
 // also make Tesseract lose the space in "Packed in <year>" (e.g. reading
 // it as "Packedin"), so this is a prefix check, not an exact-word one.
-const FALSE_POSITIVE_PREFIXES = ['pocket', 'packed', 'picked', 'packet', 'fockedin'];
+const FALSE_POSITIVE_PREFIXES = ['pocket', 'packed', 'picked', 'packet', 'fockedin', 'batch'];
 
 function looksLikeFalsePositive(lettersLower) {
   return FALSE_POSITIVE_PREFIXES.some((word) => lettersLower.startsWith(word));
@@ -29,7 +30,7 @@ export function extractSku(rawText) {
   const packedIndex = lines.findIndex((line) => /^packed/i.test(line));
   if (packedIndex > 0) {
     const candidate = lines[packedIndex - 1].replace(/[^A-Za-z]/g, '');
-    if (candidate.length >= 2 && candidate.length <= 10) {
+    if (SKU_PATTERN.test(candidate)) {
       return candidate;
     }
   }

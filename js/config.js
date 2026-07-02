@@ -3,7 +3,7 @@
 
 // Bumped on every merge to main and tagged on that commit (e.g. `v0.1.0`),
 // so the footer on the deployed page tells you which build you're on.
-export const VERSION = '0.5.1';
+export const VERSION = '0.5.2';
 
 export const CONFIG = {
   // Where the SKU sits on a straightened packet (top-left origin box, as a
@@ -99,7 +99,14 @@ export const CONFIG = {
   // packetGeometry.js's preprocessForOcr) — separate from detection's
   // useClahe above since these run on a small, already-cropped image.
   ocr: {
-    useClahe: true,
+    // Same story as detection.useClahe: intended to help legibility, but
+    // the likely explanation for a real SKU read as "Cbjj" gaining two
+    // extra letters ("CbjjTo") with nothing visibly extra in the crop
+    // thumbnail is CLAHE turning faint background paper grain or a table
+    // divider line into sharp, stroke-like local contrast that Tesseract
+    // then confidently misreads as characters. Off by default until a
+    // version of this proves net-positive.
+    useClahe: false,
     claheClipLimit: 2.0,
     claheTileGridSize: 8,
     // Off by default: Tesseract already does its own internal
