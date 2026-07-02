@@ -3,7 +3,7 @@
 
 // Bumped on every merge to main and tagged on that commit (e.g. `v0.1.0`),
 // so the footer on the deployed page tells you which build you're on.
-export const VERSION = '0.5.2';
+export const VERSION = '0.5.3';
 
 export const CONFIG = {
   // Where the SKU sits on a straightened packet (top-left origin box, as a
@@ -22,13 +22,15 @@ export const CONFIG = {
 
   // Where the product title (e.g. "NIGELLA - DELFT BLUE") sits — the
   // largest text on the packet, the first horizontal line below the logo.
-  // Tuned against real straightened-packet photos, twice now: yPercent
-  // 0.34/hPercent 0.08 still caught a sliver of the curved "SEEDS" logo
-  // text at the top *and* clipped the bottom of the title's own
-  // characters — the whole window needed to move down further, not just
-  // shrink. May still need further adjustment for a longer title that
-  // wraps to two lines.
-  titleCrop: { xPercent: 0.05, yPercent: 0.37, wPercent: 0.9, hPercent: 0.11 },
+  // Tuned against real straightened-packet photos, several times now:
+  // starting the crop higher than 0.37 caught the tail of the curved
+  // "SEEDS" logo text above, and a height of 0.11 half-clipped the second
+  // line of a two-line title (e.g. "LETTUCE - FLASHY LIGHTNING
+  // BUTTER-OAK"), garbling its OCR. Tall enough for two full lines now —
+  // for single-line titles the extra height can catch the smaller
+  // latin-name line below instead, which extractTitle (js/title.js)
+  // filters back out by its mixed case.
+  titleCrop: { xPercent: 0.05, yPercent: 0.37, wPercent: 0.9, hPercent: 0.16 },
 
   output: {
     // Cap on the straightened packet's longest side (px). Higher gives OCR
@@ -49,9 +51,15 @@ export const CONFIG = {
 
   detection: {
     // Canny edge detection thresholds — lower catches fainter edges but
-    // picks up more background noise.
-    cannyLow: 50,
-    cannyHigh: 150,
+    // picks up more background noise. 50/150 needed a strongly
+    // contrasting background before the packet's outline registered at
+    // all; lowered so a subtler packet-vs-background boundary still
+    // produces a contour. The extra noise contours this lets through are
+    // cheap to reject (they rarely form large convex quads, and detection
+    // runs on a downscaled frame anyway) — but if lock-on gets jittery
+    // again, raise these before suspecting anything else.
+    cannyLow: 30,
+    cannyHigh: 90,
     // approxPolyDP simplification tolerance, as a fraction of the
     // contour's perimeter. Larger = more forgiving of a slightly wobbly
     // outline still counting as a straight-edged quadrilateral.
