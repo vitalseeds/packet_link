@@ -22,6 +22,9 @@ let scanTimer = null;
 let busy = false;
 let stableCount = 0;
 let lastCorners = null;
+// Exponential-moving-average corner positions, carried across frames so the
+// overlay/warp use a steadied estimate instead of each frame's raw jitter.
+let smoothedCorners = null;
 
 startBtn.addEventListener('click', start);
 rescanBtn.addEventListener('click', resume);
@@ -72,6 +75,7 @@ function resume() {
   resultPanel.hidden = true;
   stableCount = 0;
   lastCorners = null;
+  smoothedCorners = null;
   setStatus('Point the camera at a Vital Seeds packet…');
   scanTimer = setInterval(scanFrame, CONFIG.detection.scanIntervalMs);
 }
@@ -104,6 +108,7 @@ function scanFrame() {
     if (!match.homography) {
       stableCount = 0;
       lastCorners = null;
+      smoothedCorners = null;
       frameMat.delete();
       setStatus(
         `Looking for logo… (${match.numGoodMatches}/${CONFIG.detection.minGoodMatches} keypoint matches)`
@@ -111,8 +116,9 @@ function scanFrame() {
       return;
     }
 
-    const corners = geometry.projectPacketCorners(match.homography);
+    const rawCorners = geometry.projectPacketCorners(match.homography);
     match.homography.delete();
+    const corners = smoothCorners(rawCorners);
     drawOverlayQuad(corners);
 
     stableCount = cornersAreStable(corners, lastCorners) ? stableCount + 1 : 1;
@@ -137,6 +143,22 @@ function scanFrame() {
   } finally {
     busy = false;
   }
+}
+
+// Blends this frame's raw corners with the running smoothed estimate, so a
+// single noisy frame doesn't yank the overlay/warp around — the display
+// eases toward each new reading rather than snapping to it.
+function smoothCorners(rawCorners) {
+  if (!smoothedCorners) {
+    smoothedCorners = rawCorners;
+    return smoothedCorners;
+  }
+  const alpha = CONFIG.detection.cornerSmoothing;
+  smoothedCorners = rawCorners.map((p, i) => ({
+    x: smoothedCorners[i].x + alpha * (p.x - smoothedCorners[i].x),
+    y: smoothedCorners[i].y + alpha * (p.y - smoothedCorners[i].y),
+  }));
+  return smoothedCorners;
 }
 
 function cornersAreStable(current, previous) {

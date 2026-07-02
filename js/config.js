@@ -45,5 +45,11 @@ export const CONFIG = {
     // Max pixel drift allowed between frames to still count as "stable".
     stableDriftPx: 15,
     scanIntervalMs: 350,
+    // Even holding the camera still, each frame's ORB matches (and hence
+    // the fitted homography) jitter slightly — different real-world points
+    // get matched each time. Smoothing the corner positions with an
+    // exponential moving average (weight given to the newest frame) turns
+    // that jitter into a steady overlay instead of a jumping one.
+    cornerSmoothing: 0.35,
   },
 };
