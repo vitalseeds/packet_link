@@ -94,6 +94,15 @@ function resume() {
   resultPanel.hidden = true;
   resultDetails.hidden = true;
   infoBtn.setAttribute('aria-expanded', 'false');
+  // The green outline from the last lock-on stays drawn until the next
+  // scanFrame() tick otherwise — visible on top of the live video and
+  // easy to mistake for a frozen feed, since nothing else clears it
+  // between pauseScan() and the first frame of the new scan.
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+  // Some mobile browsers pause a <video> element's decode while its tab
+  // is backgrounded (e.g. switching apps to line up the packet); make
+  // sure it's actually playing again rather than assuming it still is.
+  video.play().catch(() => {});
   scanBtn.disabled = true;
   stableCount = 0;
   lastCorners = null;

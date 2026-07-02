@@ -3,7 +3,7 @@
 
 // Bumped on every merge to main and tagged on that commit (e.g. `v0.1.0`),
 // so the footer on the deployed page tells you which build you're on.
-export const VERSION = '0.3.6';
+export const VERSION = '0.3.7';
 
 export const CONFIG = {
   // Where the SKU sits on a straightened packet (top-left origin box, as a
