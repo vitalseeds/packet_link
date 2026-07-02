@@ -1,45 +1,29 @@
-// Turns a logo homography into a straightened, upright image of the whole
-// packet, using the fact that every Vital Seeds packet shares the same
-// template (so the packet's corners, relative to the logo, are fixed).
+// Straightens a detected packet quadrilateral into an upright image, and
+// crops out the region that holds the SKU.
 import { CONFIG } from './config.js';
 
-let packetW = 0;
-let packetH = 0;
-
-// Must be called once with the reference packet photo's pixel dimensions
-// (see logoDetector.init()) before projectPacketCorners()/warp are used.
-export function setReferenceSize(width, height) {
-  packetW = width;
-  packetH = height;
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-// Projects the reference packet's 4 corners through the homography to find
-// where the packet lands in the live camera frame.
-// Returns [topLeft, topRight, bottomRight, bottomLeft] in frame pixel space.
-export function projectPacketCorners(homography) {
-  const refCorners = [0, 0, packetW, 0, packetW, packetH, 0, packetH];
-  const srcMat = cv.matFromArray(4, 1, cv.CV_32FC2, refCorners);
-  const dstMat = new cv.Mat();
-  cv.perspectiveTransform(srcMat, dstMat, homography);
+// Warps the quadrilateral [topLeft, topRight, bottomRight, bottomLeft] in
+// frameMat into an upright rectangular canvas, undoing rotation/perspective.
+// The output size is derived from the corners' own edge lengths (not a
+// fixed template size), so it works for any packet regardless of how large
+// or far away it appears in frame.
+export function warpPacketToCanvas(frameMat, corners) {
+  const [tl, tr, br, bl] = corners;
 
-  const corners = [];
-  for (let i = 0; i < 4; i++) {
-    corners.push({ x: dstMat.data32F[i * 2], y: dstMat.data32F[i * 2 + 1] });
-  }
+  const rawW = Math.max(distance(tl, tr), distance(bl, br));
+  const rawH = Math.max(distance(tl, bl), distance(tr, br));
 
-  srcMat.delete();
-  dstMat.delete();
-  return corners;
-}
+  // Cap the render size — plenty of resolution for OCR without wasting CPU
+  // warping/OCR-ing a huge crop when the packet fills a high-res frame.
+  const scale = Math.min(1, CONFIG.output.maxDim / Math.max(rawW, rawH));
+  const outW = Math.max(1, Math.round(rawW * scale));
+  const outH = Math.max(1, Math.round(rawH * scale));
 
-// Warps the quadrilateral in frameMat described by frameCorners into an
-// upright rectangular canvas, undoing rotation/perspective.
-export function warpPacketToCanvas(frameMat, frameCorners) {
-  const outW = CONFIG.output.width;
-  const outH = Math.round(outW * CONFIG.output.aspect);
-
-  const srcArr = [];
-  frameCorners.forEach((p) => srcArr.push(p.x, p.y));
+  const srcArr = [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y];
   const dstArr = [0, 0, outW, 0, outW, outH, 0, outH];
 
   const srcMat = cv.matFromArray(4, 1, cv.CV_32FC2, srcArr);
@@ -61,7 +45,8 @@ export function warpPacketToCanvas(frameMat, frameCorners) {
   return canvas;
 }
 
-// Crops the region of a straightened packet canvas that holds the SKU text.
+// Crops the region of a straightened packet canvas that holds the SKU text
+// (bottom-left, per the fixed Vital Seeds packet layout).
 export function cropOcrRegion(straightCanvas) {
   const { xPercent, yPercent, wPercent, hPercent } = CONFIG.ocrCrop;
   const sx = straightCanvas.width * xPercent;

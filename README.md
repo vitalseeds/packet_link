@@ -12,31 +12,37 @@ A single, dependency-free (no build step) page that runs entirely in the
 browser on a phone:
 
 ```
-camera frame -> find logo (ORB) -> straighten packet (homography) -> crop bottom-left -> OCR -> SKU
+camera frame -> find packet outline (contours) -> straighten (perspective transform) -> crop bottom-left -> OCR -> SKU
 ```
 
-Every Vital Seeds packet shares the same template, so the pipeline only
-needs to recognise the logo (a small, distinctive image) rather than the
-whole packet:
+Rather than recognising the packet by its logo (which needs a calibrated
+reference photo per template), this looks for the packet's own edges —
+"an obvious rectangle" against its background:
 
-1. **Find the logo** — [OpenCV.js](https://docs.opencv.org/4.x/opencv.js)
-   ORB feature matching locates the logo in the camera frame and, via
-   `cv.findHomography`, computes the transform from the reference photo's
-   coordinate space to the live frame.
-2. **Infer the packet** — since the logo's position on the packet template
-   is fixed, that same homography also tells us where the packet's four
-   corners are in the live frame.
-3. **Crop and straighten** — `cv.getPerspectiveTransform` +
-   `cv.warpPerspective` turn the (possibly rotated/skewed) packet outline
-   into an upright rectangle.
-4. **OCR** — the SKU always ends up in the same place on the straightened
-   image (bottom-left), so only that small region is cropped and passed to
+1. **Find the outline** — [OpenCV.js](https://docs.opencv.org/4.x/opencv.js)
+   runs Canny edge detection and `cv.findContours` on the frame, then keeps
+   the largest contour that simplifies (`cv.approxPolyDP`) to a convex
+   4-sided shape taking up a sensible fraction of the frame — that's taken
+   to be the packet.
+2. **Crop and straighten** — the 4 corners go straight into
+   `cv.getPerspectiveTransform` + `cv.warpPerspective` to undo
+   rotation/perspective into an upright rectangle, sized from the corners'
+   own edge lengths (no fixed template size needed).
+3. **OCR** — the SKU always ends up in the same place on the straightened
+   image (bottom-left, per the fixed Vital Seeds packet layout), so only
+   that small region is cropped and passed to
    [Tesseract.js](https://github.com/naptha/tesseract.js), keeping OCR fast
    and accurate.
+
+No reference photo or per-packet calibration is needed — it works the same
+way for any packet, as long as it's on a plain, contrasting background.
 
 Currently the app stops at displaying the recognised SKU — linking it to
 the matching product/grow-guide page on vitalseeds.co.uk is a deliberately
 separate follow-up step.
+
+An earlier logo-matching (ORB feature matching + homography) approach is
+preserved on the `logo-packet-sku` branch.
 
 ## Running it
 
@@ -51,12 +57,6 @@ npx serve .
 Then visit the printed URL on a phone (or `localhost` in a desktop browser
 with a webcam).
 
-### One-time setup: reference photo
-
-Before the logo detector works, add a reference photo of a packet — see
-[`assets/README.md`](assets/README.md) for what's needed and how to
-calibrate the logo's position on it.
-
 ## Versioning
 
 The deployed page shows a version number in the footer so you can confirm
@@ -70,7 +70,11 @@ on `main`.
 
 ## Known limitations
 
-- If the logo is covered (thumb, another packet, etc.) detection fails
-  outright — there's no fallback packet-outline detector yet.
+- Needs a plain, contrasting background (e.g. a dark surface behind a
+  light packet) — a busy or same-colour background can confuse contour
+  detection, or make it lock onto the wrong rectangle.
+- Assumes the packet is held right-side up relative to the camera (not
+  upside down); the corner-ordering logic doesn't otherwise know which
+  way is "up".
 - Detection is tuned for a limited range of rotation/scale/distance; very
-  extreme angles or very small/blurry logos won't match.
+  extreme angles won't produce a clean 4-sided contour.

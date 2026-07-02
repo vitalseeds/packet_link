@@ -1,7 +1,7 @@
 // Wires the pipeline together:
-//   camera frame -> find logo -> straighten packet -> crop SKU -> OCR -> SKU
+//   camera frame -> find packet outline -> straighten -> crop SKU -> OCR -> SKU
 import { CONFIG, VERSION } from './config.js';
-import * as logoDetector from './logoDetector.js';
+import * as rectDetector from './rectDetector.js';
 import * as geometry from './packetGeometry.js';
 import { initOcr, recognizeText } from './ocr.js';
 import { extractSku } from './sku.js';
@@ -34,18 +34,6 @@ rescanBtn.addEventListener('click', resume);
 async function start() {
   startBtn.disabled = true;
 
-  setStatus('Loading reference logo…');
-  try {
-    const { packetW, packetH } = await logoDetector.init();
-    geometry.setReferenceSize(packetW, packetH);
-  } catch (err) {
-    setStatus(
-      `Could not load ${CONFIG.paths.referencePacketImage} (${err.message}). See assets/README.md.`
-    );
-    startBtn.disabled = false;
-    return;
-  }
-
   setStatus('Loading OCR engine…');
   await initOcr();
 
@@ -69,7 +57,7 @@ async function start() {
   workCanvas.width = w;
   workCanvas.height = h;
 
-  setStatus('Point the camera at a Vital Seeds packet…');
+  setStatus('Point the camera at a Vital Seeds packet, on a plain background…');
   scanTimer = setInterval(scanFrame, CONFIG.detection.scanIntervalMs);
 }
 
@@ -78,7 +66,7 @@ function resume() {
   stableCount = 0;
   lastCorners = null;
   smoothedCorners = null;
-  setStatus('Point the camera at a Vital Seeds packet…');
+  setStatus('Point the camera at a Vital Seeds packet, on a plain background…');
   scanTimer = setInterval(scanFrame, CONFIG.detection.scanIntervalMs);
 }
 
@@ -100,26 +88,18 @@ function scanFrame() {
     ctx.drawImage(video, 0, 0, workCanvas.width, workCanvas.height);
 
     const frameMat = cv.imread(workCanvas);
-    const gray = new cv.Mat();
-    cv.cvtColor(frameMat, gray, cv.COLOR_RGBA2GRAY);
-
-    const match = logoDetector.detect(gray);
-    gray.delete();
+    const rawCorners = rectDetector.detect(frameMat);
     overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
 
-    if (!match.homography) {
+    if (!rawCorners) {
       stableCount = 0;
       lastCorners = null;
       smoothedCorners = null;
       frameMat.delete();
-      setStatus(
-        `Looking for logo… (${match.numGoodMatches}/${CONFIG.detection.minGoodMatches} keypoint matches)`
-      );
+      setStatus('Looking for a rectangular packet outline…');
       return;
     }
 
-    const rawCorners = geometry.projectPacketCorners(match.homography);
-    match.homography.delete();
     const corners = smoothCorners(rawCorners);
     drawOverlayQuad(corners);
 
@@ -129,7 +109,7 @@ function scanFrame() {
     if (stableCount < CONFIG.detection.stableFramesRequired) {
       frameMat.delete();
       setStatus(
-        `Logo found (${match.numGoodMatches} matches) — hold steady… (${stableCount}/${CONFIG.detection.stableFramesRequired})`
+        `Packet outline found — hold steady… (${stableCount}/${CONFIG.detection.stableFramesRequired})`
       );
       return;
     }
