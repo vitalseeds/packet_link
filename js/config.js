@@ -10,21 +10,25 @@ export const CONFIG = {
   // fraction of the straightened packet's width/height) — fixed by the
   // Vital Seeds packet layout, same for every variety. This box actually
   // contains three lines ("<SKU>", "Packed in <year>", "Batch # <n>"), not
-  // just the SKU — see js/sku.js for why that matters.
-  skuCrop: { xPercent: 0, yPercent: 0.75, wPercent: 0.25, hPercent: 0.25 },
+  // just the SKU — see js/sku.js for why that matters. wPercent 0.25 was
+  // clipping the tail of "Packed in <year>"/"Batch # <n>" even after
+  // remapCropForMargin corrected for the corner margin — that text block
+  // is just wider than 25% of the packet's width in reality. Widened to
+  // give it room; may still need further adjustment.
+  skuCrop: { xPercent: 0, yPercent: 0.75, wPercent: 0.32, hPercent: 0.25 },
   // The SKU text is small relative to the packet, which hurts OCR
   // accuracy — this upscales just that crop before recognising it.
   skuCropUpscale: 3,
 
   // Where the product title (e.g. "NIGELLA - DELFT BLUE") sits — the
   // largest text on the packet, the first horizontal line below the logo.
-  // Tuned against real straightened-packet photos: yPercent 0.3/hPercent
-  // 0.12 was tall enough to also catch the tail of the curved "SEEDS" logo
-  // text sitting just above the title, which extractTitle then joined onto
-  // the real title (e.g. "SEE FDU i NAPA CARBAGE-JEJU"). Moved down and
-  // shrunk to sit just on the title's own line — may still need further
-  // adjustment for a longer title that wraps to two lines.
-  titleCrop: { xPercent: 0.05, yPercent: 0.34, wPercent: 0.9, hPercent: 0.08 },
+  // Tuned against real straightened-packet photos, twice now: yPercent
+  // 0.34/hPercent 0.08 still caught a sliver of the curved "SEEDS" logo
+  // text at the top *and* clipped the bottom of the title's own
+  // characters — the whole window needed to move down further, not just
+  // shrink. May still need further adjustment for a longer title that
+  // wraps to two lines.
+  titleCrop: { xPercent: 0.05, yPercent: 0.37, wPercent: 0.9, hPercent: 0.11 },
 
   output: {
     // Cap on the straightened packet's longest side (px). Higher gives OCR
