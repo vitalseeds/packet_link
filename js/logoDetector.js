@@ -68,10 +68,12 @@ export async function init() {
 }
 
 // Attempts to find the logo in a single-channel (grayscale) frame Mat.
-// Returns { homography, numGoodMatches } or null if not enough evidence.
-// Caller owns the returned homography Mat and must .delete() it.
+// Always returns { homography, numGoodMatches } so the caller can show
+// "near miss" feedback (e.g. matches found but not enough to trust yet) —
+// homography is null when there wasn't enough evidence to compute one.
+// Caller owns homography (if non-null) and must .delete() it.
 export function detect(frameGrayMat) {
-  if (!ready) return null;
+  if (!ready) return { homography: null, numGoodMatches: 0 };
 
   const keypoints = new cv.KeyPointVector();
   const descriptors = new cv.Mat();
@@ -82,7 +84,7 @@ export function detect(frameGrayMat) {
   if (descriptors.rows === 0) {
     keypoints.delete();
     descriptors.delete();
-    return null;
+    return { homography: null, numGoodMatches: 0 };
   }
 
   const knnMatches = new cv.DMatchVectorVector();
@@ -111,7 +113,7 @@ export function detect(frameGrayMat) {
 
   const numGoodMatches = srcPts.length / 2;
   if (numGoodMatches < CONFIG.detection.minGoodMatches) {
-    return null;
+    return { homography: null, numGoodMatches };
   }
 
   const srcMat = cv.matFromArray(numGoodMatches, 1, cv.CV_32FC2, srcPts);
@@ -130,7 +132,7 @@ export function detect(frameGrayMat) {
 
   if (homography.empty()) {
     homography.delete();
-    return null;
+    return { homography: null, numGoodMatches };
   }
 
   return { homography, numGoodMatches };

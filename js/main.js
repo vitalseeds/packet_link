@@ -85,44 +85,58 @@ function scanFrame() {
   if (busy) return;
   busy = true;
 
-  const ctx = workCanvas.getContext('2d');
-  ctx.drawImage(video, 0, 0, workCanvas.width, workCanvas.height);
+  // Everything below runs every ~350ms while scanning, so any thrown error
+  // must not leave `busy` stuck true — that would silently freeze the loop
+  // (interval keeps firing, but every call bails out on the guard above)
+  // with no visible sign anything went wrong.
+  try {
+    const ctx = workCanvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, workCanvas.width, workCanvas.height);
 
-  const frameMat = cv.imread(workCanvas);
-  const gray = new cv.Mat();
-  cv.cvtColor(frameMat, gray, cv.COLOR_RGBA2GRAY);
+    const frameMat = cv.imread(workCanvas);
+    const gray = new cv.Mat();
+    cv.cvtColor(frameMat, gray, cv.COLOR_RGBA2GRAY);
 
-  const match = logoDetector.detect(gray);
-  gray.delete();
-  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+    const match = logoDetector.detect(gray);
+    gray.delete();
+    overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
 
-  if (!match) {
-    stableCount = 0;
-    lastCorners = null;
+    if (!match.homography) {
+      stableCount = 0;
+      lastCorners = null;
+      frameMat.delete();
+      setStatus(
+        `Looking for logo… (${match.numGoodMatches}/${CONFIG.detection.minGoodMatches} keypoint matches)`
+      );
+      return;
+    }
+
+    const corners = geometry.projectPacketCorners(match.homography);
+    match.homography.delete();
+    drawOverlayQuad(corners);
+
+    stableCount = cornersAreStable(corners, lastCorners) ? stableCount + 1 : 1;
+    lastCorners = corners;
+
+    if (stableCount < CONFIG.detection.stableFramesRequired) {
+      frameMat.delete();
+      setStatus(
+        `Logo found (${match.numGoodMatches} matches) — hold steady… (${stableCount}/${CONFIG.detection.stableFramesRequired})`
+      );
+      return;
+    }
+
+    const straightCanvas = geometry.warpPacketToCanvas(frameMat, corners);
     frameMat.delete();
+
+    pauseScan();
+    handleStableDetection(straightCanvas);
+  } catch (err) {
+    console.error(err);
+    setStatus(`Scan error: ${err.message}`);
+  } finally {
     busy = false;
-    return;
   }
-
-  const corners = geometry.projectPacketCorners(match.homography);
-  match.homography.delete();
-  drawOverlayQuad(corners);
-
-  stableCount = cornersAreStable(corners, lastCorners) ? stableCount + 1 : 1;
-  lastCorners = corners;
-
-  if (stableCount < CONFIG.detection.stableFramesRequired) {
-    frameMat.delete();
-    busy = false;
-    return;
-  }
-
-  const straightCanvas = geometry.warpPacketToCanvas(frameMat, corners);
-  frameMat.delete();
-  busy = false;
-
-  pauseScan();
-  handleStableDetection(straightCanvas);
 }
 
 function cornersAreStable(current, previous) {
