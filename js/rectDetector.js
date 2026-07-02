@@ -24,9 +24,18 @@ export function detect(frameMat, CONFIG) {
   const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
   cv.dilate(edges, dilated, kernel);
 
+  // RETR_EXTERNAL only, not RETR_LIST: the packet has a printed decorative
+  // border inset slightly from its physical edge, which is itself a
+  // rectangle. RETR_LIST would offer that inner border as a candidate
+  // alongside the true outer edge — normally harmless since the outer
+  // edge is larger and wins, but if the true outer edge doesn't form one
+  // clean contour (weak contrast against the background), the reliably
+  // strong inner border can end up as the largest valid candidate instead,
+  // i.e. locking onto a sub-rectangle of the packet. RETR_EXTERNAL ignores
+  // nested contours entirely, so that inner border is never a candidate.
   const contours = new cv.MatVector();
   const hierarchy = new cv.Mat();
-  cv.findContours(dilated, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+  cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
   const frameArea = frameMat.rows * frameMat.cols;
   let best = null;
