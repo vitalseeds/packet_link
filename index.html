@@ -18,14 +18,30 @@
       <canvas id="overlay"></canvas>
     </div>
 
-    <button id="startBtn">Start scanning</button>
+    <button id="scanBtn">Start scanning</button>
     <p id="status" role="status"></p>
 
     <section id="result" hidden>
-      <h2>SKU: <span id="resultSku">—</span></h2>
-      <img id="resultThumb" alt="Cropped SKU region" />
-      <p>Raw OCR text: <code id="resultRaw"></code></p>
-      <button id="rescanBtn">Scan another packet</button>
+      <h2>
+        SKU:
+        <a id="resultSkuLink" target="_blank" rel="noopener"
+          ><span id="resultSku">—</span></a
+        >
+        <button
+          id="infoBtn"
+          type="button"
+          class="info-btn"
+          aria-expanded="false"
+          aria-label="Show scan details"
+          title="Show scan details"
+        >
+          i
+        </button>
+      </h2>
+      <div id="resultDetails" hidden>
+        <img id="resultThumb" alt="Cropped SKU region" />
+        <p>Raw OCR text: <code id="resultRaw"></code></p>
+      </div>
     </section>
   </main>
 
@@ -49,6 +65,6 @@
        a fresh fetch of the *whole* module graph on the next deploy —
        without it, a browser can keep serving old cached JS indefinitely
        even after index.html itself reloads. -->
-  <script type="module" src="js/main.js?v=0.2.0"></script>
+  <script type="module" src="js/main.js?v=0.3.0"></script>
 </body>
 </html>

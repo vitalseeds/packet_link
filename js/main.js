@@ -12,7 +12,7 @@ const { CONFIG, VERSION } = await import(`./config.js${cacheBust}`);
 const rectDetector = await import(`./rectDetector.js${cacheBust}`);
 const geometry = await import(`./packetGeometry.js${cacheBust}`);
 const { initOcr, recognizeText } = await import(`./ocr.js${cacheBust}`);
-const { extractSku } = await import(`./sku.js${cacheBust}`);
+const { extractSku, skuSearchUrl } = await import(`./sku.js${cacheBust}`);
 
 document.getElementById('version').textContent = VERSION;
 // Dev convenience: forces a fresh reload of index.html itself (a browser
@@ -24,11 +24,13 @@ const overlay = document.getElementById('overlay');
 const overlayCtx = overlay.getContext('2d');
 const workCanvas = document.createElement('canvas'); // off-screen scratch space
 const statusEl = document.getElementById('status');
-const startBtn = document.getElementById('startBtn');
-const rescanBtn = document.getElementById('rescanBtn');
+const scanBtn = document.getElementById('scanBtn');
+const infoBtn = document.getElementById('infoBtn');
 const resultPanel = document.getElementById('result');
+const resultDetails = document.getElementById('resultDetails');
 const resultThumb = document.getElementById('resultThumb');
 const resultSku = document.getElementById('resultSku');
+const resultSkuLink = document.getElementById('resultSkuLink');
 const resultRaw = document.getElementById('resultRaw');
 
 let scanTimer = null;
@@ -39,11 +41,27 @@ let lastCorners = null;
 // overlay/warp use a steadied estimate instead of each frame's raw jitter.
 let smoothedCorners = null;
 
-startBtn.addEventListener('click', start);
-rescanBtn.addEventListener('click', resume);
+// One button does double duty: "Start scanning" the first time (which
+// requests the camera), then "Scan again" from then on (which just
+// re-arms scanning against the camera stream already granted). Whether
+// the camera's been started is exactly whether video.srcObject is set,
+// so that's used instead of tracking separate state.
+scanBtn.addEventListener('click', () => {
+  if (video.srcObject) {
+    resume();
+  } else {
+    start();
+  }
+});
+
+infoBtn.addEventListener('click', () => {
+  const showing = resultDetails.hidden;
+  resultDetails.hidden = !showing;
+  infoBtn.setAttribute('aria-expanded', String(showing));
+});
 
 async function start() {
-  startBtn.disabled = true;
+  scanBtn.disabled = true;
 
   setStatus('Loading OCR engine…');
   await initOcr();
@@ -57,7 +75,7 @@ async function start() {
     await video.play();
   } catch (err) {
     setStatus(`Camera access failed: ${err.message}`);
-    startBtn.disabled = false;
+    scanBtn.disabled = false;
     return;
   }
 
@@ -74,6 +92,9 @@ async function start() {
 
 function resume() {
   resultPanel.hidden = true;
+  resultDetails.hidden = true;
+  infoBtn.setAttribute('aria-expanded', 'false');
+  scanBtn.disabled = true;
   stableCount = 0;
   lastCorners = null;
   smoothedCorners = null;
@@ -175,12 +196,16 @@ async function handleStableDetection(straightCanvas) {
   if (!sku) {
     setStatus('Could not read a clear SKU. Try again with better light/focus.');
     resultSku.textContent = '—';
+    resultSkuLink.removeAttribute('href');
   } else {
     setStatus('Done.');
     resultSku.textContent = sku;
+    resultSkuLink.href = skuSearchUrl(sku);
   }
 
   resultPanel.hidden = false;
+  scanBtn.textContent = 'Scan again';
+  scanBtn.disabled = false;
 }
 
 function drawOverlayQuad(corners) {

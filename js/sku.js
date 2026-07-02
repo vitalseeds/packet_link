@@ -3,6 +3,12 @@
 // codes and are always the first line of text in that crop.
 const SKU_PATTERN = /^[A-Za-z]{3,8}$/;
 
+// Words that occasionally get OCR'd off a neighbouring line ("Packed in
+// 2026", "Batch #") and happen to satisfy SKU_PATTERN on their own —
+// never real SKUs, so treat a match on one of these as a sign the crop
+// slipped onto the wrong line and keep looking rather than accept it.
+const FALSE_POSITIVE_WORDS = new Set(['pocket', 'packed', 'picked', 'packet']);
+
 export function extractSku(rawText) {
   const lines = rawText
     .split('\n')
@@ -11,9 +17,13 @@ export function extractSku(rawText) {
 
   for (const line of lines) {
     const lettersOnly = line.replace(/[^A-Za-z]/g, '');
-    if (SKU_PATTERN.test(lettersOnly)) {
-      return lettersOnly;
-    }
+    if (!SKU_PATTERN.test(lettersOnly)) continue;
+    if (FALSE_POSITIVE_WORDS.has(lettersOnly.toLowerCase())) continue;
+    return lettersOnly;
   }
   return null;
+}
+
+export function skuSearchUrl(sku) {
+  return `https://vitalseeds.co.uk/search?s=${encodeURIComponent(sku)}`;
 }
