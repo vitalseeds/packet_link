@@ -1,6 +1,9 @@
 // Straightens a detected packet quadrilateral into an upright image, and
 // crops out the region that holds the SKU.
-import { CONFIG } from './config.js';
+//
+// Both functions take CONFIG as a parameter (rather than importing it
+// directly) so every file ends up sharing the exact same cache-busted copy
+// that main.js loaded — see the comment at the top of js/main.js.
 
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -11,7 +14,7 @@ function distance(a, b) {
 // The output size is derived from the corners' own edge lengths (not a
 // fixed template size), so it works for any packet regardless of how large
 // or far away it appears in frame.
-export function warpPacketToCanvas(frameMat, corners) {
+export function warpPacketToCanvas(frameMat, corners, CONFIG) {
   const [tl, tr, br, bl] = corners;
 
   const rawW = Math.max(distance(tl, tr), distance(bl, br));
@@ -47,7 +50,7 @@ export function warpPacketToCanvas(frameMat, corners) {
 
 // Crops the region of a straightened packet canvas that holds the SKU text
 // (bottom-left, per the fixed Vital Seeds packet layout).
-export function cropOcrRegion(straightCanvas) {
+export function cropOcrRegion(straightCanvas, CONFIG) {
   const { xPercent, yPercent, wPercent, hPercent } = CONFIG.ocrCrop;
   const sx = straightCanvas.width * xPercent;
   const sy = straightCanvas.height * yPercent;

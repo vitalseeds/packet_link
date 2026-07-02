@@ -2,11 +2,14 @@
 // rectangular contour in the frame — rather than recognising the logo.
 // Simpler and calibration-free: no reference photo, no per-packet-template
 // measurements, just "find an obvious rectangle".
-import { CONFIG } from './config.js';
+//
+// Takes CONFIG as a parameter (rather than importing it directly) so every
+// file ends up sharing the exact same cache-busted copy that main.js
+// loaded — see the comment at the top of js/main.js.
 
 // Returns [topLeft, topRight, bottomRight, bottomLeft] in frame pixel space,
 // or null if nothing rectangular enough was found.
-export function detect(frameMat) {
+export function detect(frameMat, CONFIG) {
   const gray = new cv.Mat();
   cv.cvtColor(frameMat, gray, cv.COLOR_RGBA2GRAY);
 

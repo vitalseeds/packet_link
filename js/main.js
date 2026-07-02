@@ -1,17 +1,23 @@
 // Wires the pipeline together:
 //   camera frame -> find packet outline -> straighten -> crop SKU -> OCR -> SKU
-import { CONFIG, VERSION } from './config.js';
-import * as rectDetector from './rectDetector.js';
-import * as geometry from './packetGeometry.js';
-import { initOcr, recognizeText } from './ocr.js';
-import { extractSku } from './sku.js';
+//
+// This file is loaded as js/main.js?v=<VERSION> (see index.html). Reusing
+// that same query string on every import below means a version bump forces
+// a fresh fetch of the *whole* module graph, not just this file — a plain
+// `<script src="js/main.js">` (no cache-bust) would let a browser keep
+// serving stale cached copies of these modules indefinitely, even after
+// index.html itself reloads.
+const cacheBust = new URL(import.meta.url).search;
+const { CONFIG, VERSION } = await import(`./config.js${cacheBust}`);
+const rectDetector = await import(`./rectDetector.js${cacheBust}`);
+const geometry = await import(`./packetGeometry.js${cacheBust}`);
+const { initOcr, recognizeText } = await import(`./ocr.js${cacheBust}`);
+const { extractSku } = await import(`./sku.js${cacheBust}`);
 
 document.getElementById('version').textContent = VERSION;
-// Cache-busting query param so this link always forces a fresh fetch of
-// index.html (and, since the page then re-requests them, its scripts too),
-// rather than a cached copy — handy for confirming you're on the latest
-// deploy during development.
-document.getElementById('refreshLink').href = `${location.pathname}?t=${Date.now()}`;
+// Dev convenience: forces a fresh reload of index.html itself (a browser
+// can cache the HTML document too, separately from its scripts).
+document.getElementById('refreshLink').href = `${location.pathname}?v=${VERSION}`;
 
 const video = document.getElementById('video');
 const overlay = document.getElementById('overlay');
@@ -93,7 +99,7 @@ function scanFrame() {
     ctx.drawImage(video, 0, 0, workCanvas.width, workCanvas.height);
 
     const frameMat = cv.imread(workCanvas);
-    const rawCorners = rectDetector.detect(frameMat);
+    const rawCorners = rectDetector.detect(frameMat, CONFIG);
     overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
 
     if (!rawCorners) {
@@ -119,7 +125,7 @@ function scanFrame() {
       return;
     }
 
-    const straightCanvas = geometry.warpPacketToCanvas(frameMat, corners);
+    const straightCanvas = geometry.warpPacketToCanvas(frameMat, corners, CONFIG);
     frameMat.delete();
 
     pauseScan();
@@ -159,7 +165,7 @@ function cornersAreStable(current, previous) {
 async function handleStableDetection(straightCanvas) {
   setStatus('Packet locked — reading label…');
 
-  const ocrCanvas = geometry.cropOcrRegion(straightCanvas);
+  const ocrCanvas = geometry.cropOcrRegion(straightCanvas, CONFIG);
   const text = await recognizeText(ocrCanvas);
   const sku = extractSku(text);
 
