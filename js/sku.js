@@ -7,7 +7,7 @@ const SKU_PATTERN = /^[A-Za-z]{3,8}$/;
 // 2026", "Batch #") and happen to satisfy SKU_PATTERN on their own —
 // never real SKUs, so treat a match on one of these as a sign the crop
 // slipped onto the wrong line and keep looking rather than accept it.
-const FALSE_POSITIVE_WORDS = new Set(['pocket', 'packed', 'picked', 'packet']);
+const FALSE_POSITIVE_WORDS = new Set(['pocket', 'packed', 'picked', 'packet', 'fockedin']);
 
 export function extractSku(rawText) {
   const lines = rawText
