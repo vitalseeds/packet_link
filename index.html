@@ -39,26 +39,31 @@
     </section>
   </main>
 
-  <!-- Bumped alongside CONFIG.VERSION in js/config.js and tagged on main at
-       merge time, so you can tell which deploy you're looking at. -->
+  <!-- Bumped in js/config.js and tagged on main at merge time, so you can
+       tell which deploy you're looking at. -->
   <footer>
     <small>v<span id="version"></span></small>
     ·
-    <!-- Dev convenience: reloads with a cache-busting query param, in case
-         a CDN/browser is still serving a stale cached copy of the page. -->
-    <a id="refreshLink" href="?v=0">refresh</a>
+    <!-- Dev convenience: reloads with a cache-busting query param based on
+         the current time, in case a CDN/browser is still serving a stale
+         cached copy of the page itself (separate from __BUILD__ above,
+         which busts the cache for its scripts, not the HTML document). -->
+    <a id="refreshLink" href="?t=0">refresh</a>
   </footer>
 
   <!-- OpenCV.js: provides contour detection + perspective transforms -->
   <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
   <!-- Tesseract.js: provides OCR -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <!-- The ?v= here must match VERSION in js/config.js (see README ->
-       Versioning). js/main.js reuses this same query string when it
-       imports its own sibling modules, so bumping this one number forces
-       a fresh fetch of the *whole* module graph on the next deploy —
-       without it, a browser can keep serving old cached JS indefinitely
-       even after index.html itself reloads. -->
-  <script type="module" src="js/main.js?v=0.4.0"></script>
+  <!-- __BUILD__ is replaced with a Unix timestamp by the deploy workflow
+       (.github/workflows/pages.yml), not hand-maintained. js/main.js
+       reuses this same query string when it imports its own sibling
+       modules, so every deploy forces a fresh fetch of the *whole* module
+       graph automatically — without it, a browser can keep serving old
+       cached JS indefinitely even after index.html itself reloads.
+       Opened locally (no workflow), this is just left as the literal
+       string "__BUILD__", which is harmless — still a valid, if static,
+       cache-bust value. -->
+  <script type="module" src="js/main.js?v=__BUILD__"></script>
 </body>
 </html>

@@ -68,6 +68,12 @@ you're looking at the latest deploy. On every merge to `main`:
 The footer version and the git tag should always match the latest commit
 on `main`.
 
+Separately, `index.html`'s script tag carries a `__BUILD__` placeholder
+that the deploy workflow (`.github/workflows/pages.yml`) stamps with the
+current Unix timestamp — this is what actually busts the browser's cache
+for the JS module graph on every deploy. It's independent of `VERSION`
+and needs no manual upkeep.
+
 ## Known limitations
 
 - Needs a plain, contrasting background (e.g. a dark surface behind a

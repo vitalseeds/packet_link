@@ -1,12 +1,13 @@
 // Wires the pipeline together:
 //   camera frame -> find packet outline -> straighten -> crop SKU -> OCR -> SKU
 //
-// This file is loaded as js/main.js?v=<VERSION> (see index.html). Reusing
-// that same query string on every import below means a version bump forces
-// a fresh fetch of the *whole* module graph, not just this file — a plain
-// `<script src="js/main.js">` (no cache-bust) would let a browser keep
-// serving stale cached copies of these modules indefinitely, even after
-// index.html itself reloads.
+// This file is loaded as js/main.js?v=<build timestamp> (see index.html —
+// the placeholder is stamped by the deploy workflow, not hand-maintained).
+// Reusing that same query string on every import below means every deploy
+// forces a fresh fetch of the *whole* module graph, not just this file —
+// a plain `<script src="js/main.js">` (no cache-bust) would let a browser
+// keep serving stale cached copies of these modules indefinitely, even
+// after index.html itself reloads.
 const cacheBust = new URL(import.meta.url).search;
 const { CONFIG, VERSION } = await import(`./config.js${cacheBust}`);
 const rectDetector = await import(`./rectDetector.js${cacheBust}`);
@@ -17,8 +18,11 @@ const { extractTitle } = await import(`./title.js${cacheBust}`);
 
 document.getElementById('version').textContent = VERSION;
 // Dev convenience: forces a fresh reload of index.html itself (a browser
-// can cache the HTML document too, separately from its scripts).
-document.getElementById('refreshLink').href = `${location.pathname}?v=${VERSION}`;
+// can cache the HTML document too, separately from its scripts). Uses the
+// current time rather than the build timestamp above, since re-requesting
+// the exact same cache-busted URL the page already loaded from wouldn't
+// bust anything — this needs its own, always-different value.
+document.getElementById('refreshLink').href = `${location.pathname}?t=${Date.now()}`;
 
 const video = document.getElementById('video');
 const overlay = document.getElementById('overlay');

@@ -23,6 +23,13 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Stamp cache-busting build ID
+        # index.html's entry script tag carries a __BUILD__ placeholder
+        # (see index.html and js/main.js) rather than a hand-maintained
+        # version number — replacing it here with the actual build time
+        # means the whole JS module graph is guaranteed to bust its cache
+        # on every deploy, with nothing to remember to keep in sync.
+        run: sed -i "s/__BUILD__/$(date +%s)/" index.html
       - uses: actions/configure-pages@v5
         with:
           # Create the Pages site automatically if it doesn't exist yet —
