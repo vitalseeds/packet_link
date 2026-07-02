@@ -196,10 +196,12 @@ async function handleStableDetection(straightCanvas) {
   if (!sku) {
     setStatus('Could not read a clear SKU. Try again with better light/focus.');
     resultSku.textContent = '—';
+    resultSkuLink.hidden = true;
     resultSkuLink.removeAttribute('href');
   } else {
     setStatus('Done.');
     resultSku.textContent = sku;
+    resultSkuLink.hidden = false;
     resultSkuLink.href = skuSearchUrl(sku);
   }
 
