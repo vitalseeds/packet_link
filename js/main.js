@@ -46,7 +46,7 @@ let lastCorners = null;
 // overlay/warp use a steadied estimate instead of each frame's raw jitter.
 let smoothedCorners = null;
 
-// One button does double duty: "Start scanning" the first time (which
+// One button does double duty: "Scan" the first time (which
 // requests the camera), then "Scan again" from then on (which just
 // re-arms scanning against the camera stream already granted). Whether
 // the camera's been started is exactly whether video.srcObject is set,
