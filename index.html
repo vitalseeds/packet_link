@@ -31,7 +31,13 @@
 
   <!-- Bumped alongside CONFIG.VERSION in js/config.js and tagged on main at
        merge time, so you can tell which deploy you're looking at. -->
-  <footer><small>v<span id="version"></span></small></footer>
+  <footer>
+    <small>v<span id="version"></span></small>
+    ·
+    <!-- Dev convenience: reloads with a cache-busting query param, in case
+         a CDN/browser is still serving a stale cached copy of the page. -->
+    <a id="refreshLink" href="?t=0">refresh</a>
+  </footer>
 
   <!-- OpenCV.js: provides contour detection + perspective transforms -->
   <script async src="https://docs.opencv.org/4.x/opencv.js"></script>

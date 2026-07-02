@@ -7,6 +7,11 @@ import { initOcr, recognizeText } from './ocr.js';
 import { extractSku } from './sku.js';
 
 document.getElementById('version').textContent = VERSION;
+// Cache-busting query param so this link always forces a fresh fetch of
+// index.html (and, since the page then re-requests them, its scripts too),
+// rather than a cached copy — handy for confirming you're on the latest
+// deploy during development.
+document.getElementById('refreshLink').href = `${location.pathname}?t=${Date.now()}`;
 
 const video = document.getElementById('video');
 const overlay = document.getElementById('overlay');
