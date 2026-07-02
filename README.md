@@ -57,6 +57,17 @@ Before the logo detector works, add a reference photo of a packet — see
 [`assets/README.md`](assets/README.md) for what's needed and how to
 calibrate the logo's position on it.
 
+## Versioning
+
+The deployed page shows a version number in the footer so you can confirm
+you're looking at the latest deploy. On every merge to `main`:
+
+1. Bump `VERSION` in `js/config.js`.
+2. Tag that merge commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+The footer version and the git tag should always match the latest commit
+on `main`.
+
 ## Known limitations
 
 - If the logo is covered (thumb, another packet, etc.) detection fails

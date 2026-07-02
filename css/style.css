@@ -103,3 +103,11 @@ main {
 #resultRaw {
   color: #999;
 }
+
+footer {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 0.5rem 1rem 1rem;
+  text-align: center;
+  color: #555;
+}

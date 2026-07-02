@@ -1,10 +1,12 @@
 // Wires the pipeline together:
 //   camera frame -> find logo -> straighten packet -> crop SKU -> OCR -> SKU
-import { CONFIG } from './config.js';
+import { CONFIG, VERSION } from './config.js';
 import * as logoDetector from './logoDetector.js';
 import * as geometry from './packetGeometry.js';
 import { initOcr, recognizeText } from './ocr.js';
 import { extractSku } from './sku.js';
+
+document.getElementById('version').textContent = VERSION;
 
 const video = document.getElementById('video');
 const overlay = document.getElementById('overlay');

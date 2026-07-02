@@ -9,6 +9,11 @@
 //
 // Use assets/calibrate.html against your own reference photo to (re)measure
 // these values if you replace the reference image.
+
+// Bumped on every merge to main and tagged on that commit (e.g. `v0.1.0`),
+// so the footer on the deployed page tells you which build you're on.
+export const VERSION = '0.1.0';
+
 export const CONFIG = {
   paths: {
     referencePacketImage: 'assets/reference-packet.jpg',
