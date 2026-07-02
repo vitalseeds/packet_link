@@ -25,5 +25,5 @@ export function extractSku(rawText) {
 }
 
 export function skuSearchUrl(sku) {
-  return `https://vitalseeds.co.uk/search?s=${encodeURIComponent(sku)}`;
+  return `https://vitalseeds.co.uk/search/${encodeURIComponent(sku)}`;
 }
