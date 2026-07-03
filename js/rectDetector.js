@@ -121,6 +121,31 @@ function applyClahe(mat, clipLimit, tileGridSize) {
   clahe.delete();
 }
 
+// Pure scoring of one candidate's features against CONFIG — no OpenCV, so it
+// is unit-testable on its own (see test/logic-checks.mjs). Returns whether the
+// candidate clears the hard gates, a 0..1 score for ranking the survivors, and
+// a reject reason for diagnostics.
+export function scoreCandidate(f, CONFIG) {
+  const d = CONFIG.detection;
+  if (!f.convex) return { pass: false, score: 0, rejectReason: 'notConvex' };
+  if (f.areaFraction < d.minAreaFraction) return { pass: false, score: 0, rejectReason: 'tooSmall' };
+  if (f.areaFraction > d.maxAreaFraction) return { pass: false, score: 0, rejectReason: 'tooLarge' };
+
+  const aspectDist = nearestAspectDistance(f.aspect, d.expectedAspects);
+  if (aspectDist > d.aspectTolerance) return { pass: false, score: 0, rejectReason: 'aspect' };
+  if (f.rectangularity < d.rectangularityFloor) return { pass: false, score: 0, rejectReason: 'rectangularity' };
+
+  const aspectMatch = 1 - Math.min(1, aspectDist / d.aspectTolerance);
+  const w = d.scoreWeights;
+  const score = w.rect * f.rectangularity + w.aspect * aspectMatch + w.area * f.areaFraction;
+  return { pass: true, score, rejectReason: null };
+}
+
+// Distance from `aspect` to the nearest of the expected ratios.
+export function nearestAspectDistance(aspect, expected) {
+  return Math.min(...expected.map((a) => Math.abs(aspect - a)));
+}
+
 function matToPoints(mat) {
   const pts = [];
   for (let i = 0; i < mat.rows; i++) {
