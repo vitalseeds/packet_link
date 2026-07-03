@@ -3,7 +3,7 @@
 
 // Bumped on every merge to main and tagged on that commit (e.g. `v0.1.0`),
 // so the footer on the deployed page tells you which build you're on.
-export const VERSION = '0.5.4';
+export const VERSION = '0.5.5';
 
 export const CONFIG = {
   // Where the SKU sits on a straightened packet (top-left origin box, as a
@@ -75,7 +75,11 @@ export const CONFIG = {
     stableFramesRequired: 3,
     // Max pixel drift allowed between frames to still count as "stable".
     stableDriftPx: 15,
-    scanIntervalMs: 350,
+    // Detection runs on a downscaled frame (detectScaleMaxDim below), so
+    // each tick is cheap — a faster tick means the required run of stable
+    // frames accumulates sooner (3 frames ≈ 750ms at 250ms vs ~1s at
+    // 350ms), which is most of the perceived "sluggish to lock on" time.
+    scanIntervalMs: 250,
     // Even holding the camera still, the detected outline jitters a
     // little frame to frame. Smoothing the corner positions with an
     // exponential moving average (weight given to the newest frame) turns
