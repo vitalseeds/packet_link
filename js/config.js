@@ -105,6 +105,37 @@ export const CONFIG = {
     useClahe: false,
     claheClipLimit: 2.0,
     claheTileGridSize: 8,
+    // Morphological-closing kernel side length (px, on the downscaled edge
+    // map). Closing = dilate-then-erode: reconnects an outer edge broken by
+    // the phone's own shadow without the net-thickening plain dilation causes
+    // (thickening drags corners inward and merges the edge with clutter).
+    morphKernelSize: 3,
+    // The packet's valid long/short aspect ratios: closed (92x128 -> 1.39)
+    // and opened with the flap exposed (92x160 -> 1.74). A candidate must sit
+    // within aspectTolerance of one of these to count as a packet — matching
+    // two discrete ratios keeps the gate far tighter than one wide band,
+    // which would wave through books/A4/tablets (~1.3-1.5).
+    expectedAspects: [1.39, 1.74],
+    // How far a candidate's aspect may sit from the NEAREST expectedAspects
+    // entry and still pass / still score. Wide enough to absorb perspective
+    // foreshortening; tighten only if false positives appear.
+    aspectTolerance: 0.15,
+    // Reject a candidate whose quad fills less than this fraction of its own
+    // minAreaRect (contourArea / minAreaRectArea). Rejects ragged shadow-quads
+    // while staying low enough to keep an opened packet's slightly
+    // off-rectangular tab.
+    rectangularityFloor: 0.8,
+    // reduceToQuad sweeps approxPolyDP's epsilon upward from approxEpsilon
+    // across this many steps, trying to land on exactly 4 corners before
+    // giving up — so a wobbly outline that approximates to 5-6 points still
+    // resolves to a quad instead of being discarded.
+    reduceEpsilonSteps: 6,
+    // Weights blending a candidate's score (see scoreCandidate). Area kept as
+    // a modest factor so the big obvious rectangle is still preferred, with
+    // rectangularity/aspect breaking ties and rejecting wrong-shaped big
+    // things. Replacing area-alone selection is what stops the frame-to-frame
+    // flicker that resets the stability counter.
+    scoreWeights: { rect: 0.5, aspect: 0.3, area: 0.2 },
   },
 
   // Preprocessing applied to the SKU/title crops before OCR (see
