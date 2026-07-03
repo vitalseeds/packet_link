@@ -18,6 +18,12 @@ problem most of the issue's table targets:
   partially overlays the packet, breaking the outer edge.
 - **Rotated packets** (secondary) — corner ordering breaks past ~45°.
 
+The packet appears in **two states**, both of which must be detected:
+
+- **Closed** (primary case): 92 mm × 128 mm → aspect (long/short) ≈ **1.39**.
+- **Opened**, exposed flap: 92 mm × 160 mm → aspect ≈ **1.74**, with a tab at
+  the flap that is slightly off-rectangular.
+
 Hard constraint: **low cost, no performance regressions.** This drops the one
 moderate-cost recommended item (edge-support scoring, which targets false
 positives we don't suffer from) and all the moderate/high-cost optional items.
@@ -97,13 +103,23 @@ Two layers, returning `{ pass, score, rejectReason }`:
 
 - **Hard gates** (reject with a named reason):
   - `areaFraction` within `[minAreaFraction, maxAreaFraction]`
-  - `aspect` within `aspectTolerance` of `expectedAspect`
+  - `aspect` within `aspectTolerance` of **any** `expectedAspects` entry —
+    i.e. close to the closed ratio (~1.39) **or** the opened ratio (~1.74)
   - `rectangularity ≥ rectangularityFloor`
   - convex
 - **Score** for survivors:
   `wRect·rectangularity + wAspect·aspectMatch + wArea·areaFraction`
-  where `aspectMatch = 1 − min(1, |aspect − expectedAspect| / aspectTolerance)`
-  and weights come from `CONFIG.detection.scoreWeights`.
+  where `aspectMatch = 1 − min(1, minOver(expectedAspects, |aspect − a|) /
+  aspectTolerance)` (distance to the *nearest* expected ratio) and weights come
+  from `CONFIG.detection.scoreWeights`.
+
+Matching against two discrete ratios rather than one wide band keeps the gate
+tight: a single band spanning 1.39–1.74 would wave through books/A4/tablets
+(which cluster ~1.3–1.5). The opened packet's slightly off-rectangular tab is
+accommodated by keeping `rectangularityFloor` modest — high enough to reject
+ragged shadow-quads, low enough not to reject a real opened packet. The
+`convexHull` step in `reduceToQuad` also helps here: the hull of a packet with
+a small protruding tab still resolves to ~4 corners.
 
 Keeping a modest `area` weight preserves today's "prefer the big obvious
 rectangle" behaviour, while rectangularity and aspect break ties and reject
@@ -162,9 +178,10 @@ live overlay.
   before the change, run after, diff. This is the regression guard.
 - Sample photos are **committed** to `test/samples/` for a reproducible
   baseline (accepted trade-off: they are served publicly via GitHub Pages).
-  Target ~10–20 frames: packets on varied backgrounds, with and without the
-  phone shadow, plus a couple of `none` distractors (book/tablet, empty
-  surface).
+  Target ~10–20 frames spanning both states (**closed and opened**) on varied
+  backgrounds, with and without the phone shadow, plus a couple of `none`
+  distractors (book/tablet, empty surface) whose aspect sits near the packet
+  ratios to exercise the gate.
 - Detect-or-not drives PASS/FAIL; corner *accuracy* is judged by eye from the
   overlay (no hand-labelled ground-truth corners in this round).
 
@@ -185,19 +202,20 @@ sweep (its current value/meaning as the base tolerance is preserved).
 | Key | Purpose | Starting value |
 |-----|---------|----------------|
 | `morphKernelSize` | closing kernel side | 3 (try 5 if shadows persist) |
-| `expectedAspect` | packet long/short ratio | calibrated from samples |
-| `aspectTolerance` | allowed deviation band | generous, tightened only if false positives appear |
-| `rectangularityFloor` | reject-below threshold | safe default, tuned on harness |
+| `expectedAspects` | list of valid long/short ratios | `[1.39, 1.74]` (closed, opened) |
+| `aspectTolerance` | allowed deviation from nearest ratio | start ~0.15, tightened only if false positives appear |
+| `rectangularityFloor` | reject-below threshold | ~0.8 (modest, to keep opened-flap packets) |
 | `reduceEpsilonSteps` | max sweep iterations | small bounded number |
 | `scoreWeights` | `{ rect, aspect, area }` | area-favouring to preserve current behaviour, tuned on harness |
 
 ### Calibration (during implementation, against the harness)
 
-- `expectedAspect` — the true Vital Seeds packet ratio is unknown up front;
-  measure it from good sample frames (or physical dimensions if available) and
-  start with a generous `aspectTolerance`.
+- `expectedAspects` — known from physical dimensions: `[1.39, 1.74]` (closed
+  92×128, opened 92×160). No measurement needed; `aspectTolerance` starts ~0.15
+  and tightens only if false positives appear.
 - `rectangularityFloor`, `scoreWeights`, `morphKernelSize` — start at safe
   defaults and tune against the harness scoreboard so no positive regresses.
+  Verify the opened-packet samples still pass at the chosen `rectangularityFloor`.
 
 ## Success criteria
 
