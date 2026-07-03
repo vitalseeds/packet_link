@@ -184,6 +184,13 @@ live overlay.
   ratios to exercise the gate.
 - Detect-or-not drives PASS/FAIL; corner *accuracy* is judged by eye from the
   overlay (no hand-labelled ground-truth corners in this round).
+- **End-to-end mode (optional per sample):** a `packet` sample may carry
+  `expectSku`/`expectTitle`. For those, the harness runs the full pipeline
+  (detect → warp → crop → OCR → `extractSku`/`extractTitle`) and reports SKU and
+  title accuracy alongside detection (`SKU correct X/Y · title correct X/Y`).
+  This catches detection changes that pass geometrically but degrade the OCR
+  crop. It runs in the browser (Tesseract.js + OpenCV.js), so it is maintainer-
+  run, not headless — consistent with the no-dependency constraint.
 
 ### Live debug overlay — `?debug=1`
 

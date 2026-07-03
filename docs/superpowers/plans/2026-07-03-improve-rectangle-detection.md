@@ -311,8 +311,16 @@ Create `test/manifest.js`:
 // opened (92x160) — on varied backgrounds, with and without the phone's own
 // shadow across the packet, plus a couple of 'none' distractors (a book or
 // tablet, an empty surface) whose aspect sits near the packet ratios.
+//
+// Optional `expectSku` / `expectTitle` fields (on 'packet' samples) turn on
+// end-to-end checking: the harness runs the FULL pipeline (detect -> warp ->
+// crop -> OCR -> extractSku/extractTitle) and reports SKU/title accuracy, not
+// just whether the packet was found. `expectSku` is the letters-only code
+// (e.g. 'CbJj'); `expectTitle` is the product title as printed (e.g.
+// 'NIGELLA - DELFT BLUE'). Leave them off to check detection only.
 export const SAMPLES = [
-  // { file: 'closed-plain-01.jpg', expect: 'packet', note: 'dark surface, no shadow' },
+  // { file: 'closed-plain-01.jpg', expect: 'packet', note: 'dark surface',
+  //   expectSku: 'CbJj', expectTitle: 'NIGELLA - DELFT BLUE' },
   // { file: 'opened-shadow-01.jpg', expect: 'packet', note: 'phone shadow across top' },
   // { file: 'book-distractor-01.jpg', expect: 'none', note: 'paperback, no packet' },
 ];
@@ -859,19 +867,74 @@ git commit -m "Select packet by shape score instead of area alone"
 - Modify: `test/harness.html` (iterate `SAMPLES`, tally pass/fail)
 
 **Interfaces:**
-- Consumes: `SAMPLES` from `test/manifest.js`; `detect` diagnostics.
+- Consumes: `SAMPLES` from `test/manifest.js`; `detect` diagnostics; the OCR pipeline — `packetGeometry.js` (`expandCorners`, `warpPacketToCanvas`, `remapCropForMargin`, `cropRegion`, `preprocessForOcr`), `ocr.js` (`initOcr`, `recognizeSkuText`, `recognizeTitleText`), `sku.js` (`extractSku`), `title.js` (`extractTitle`).
 
-- [ ] **Step 1: Add manifest iteration and summary**
+This task adds an **end-to-end mode**: for samples that carry `expectSku`/`expectTitle`, run the whole pipeline (detect → warp → crop → OCR → extract) and tally SKU/title accuracy alongside detection. Samples without those fields (and `none` samples) are detection-only. The pipeline steps mirror `js/main.js`'s `handleStableDetection` exactly.
 
-In `test/harness.html`, in the module `<script>`, add the manifest import at the top (next to the other imports):
+- [ ] **Step 1: Load Tesseract.js in the harness**
+
+In `test/harness.html`, add the Tesseract script tag immediately after the existing OpenCV `<script async …opencv.js></script>` line (Tesseract sets a global `Tesseract`, matching how `index.html` loads it):
+
+```html
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+```
+
+- [ ] **Step 2: Add pipeline imports and a full-pipeline runner**
+
+In `test/harness.html`, in the module `<script>`, add these imports next to the existing `config.js` / `rectDetector.js` imports:
 
 ```js
     const { SAMPLES } = await import('./manifest.js');
+    const geometry = await import('../js/packetGeometry.js');
+    const { initOcr, recognizeSkuText, recognizeTitleText } = await import('../js/ocr.js');
+    const { extractSku } = await import('../js/sku.js');
+    const { extractTitle } = await import('../js/title.js');
 ```
 
-Then replace the smoke-only tail (from `// Smoke test first.` through the end of the script) with:
+Then add this runner alongside the existing `runDetect` function:
 
 ```js
+    // Full pipeline for one sample: detect, then (if a packet was found and the
+    // sample declares expected OCR outputs) warp/crop/OCR/extract — mirroring
+    // js/main.js handleStableDetection. Returns { corners, diagnostics, sku,
+    // title }. Detection-only samples skip the OCR half.
+    async function runFullPipeline(srcCanvas, sample) {
+      const mat = cv.imread(srcCanvas);
+      const diagnostics = {};
+      const corners = detect(mat, CONFIG, diagnostics);
+      let sku = null, title = null;
+      const wantsOcr = sample && (sample.expectSku || sample.expectTitle);
+      if (corners && wantsOcr) {
+        const expanded = geometry.expandCorners(corners, CONFIG.output.cornerMarginPercent);
+        const straight = geometry.warpPacketToCanvas(mat, expanded, CONFIG);
+        const skuRect = geometry.remapCropForMargin(CONFIG.skuCrop, CONFIG.output.cornerMarginPercent);
+        const titleRect = geometry.remapCropForMargin(CONFIG.titleCrop, CONFIG.output.cornerMarginPercent);
+        const skuOcr = geometry.preprocessForOcr(geometry.cropRegion(straight, skuRect, CONFIG.skuCropUpscale), CONFIG.ocr);
+        const titleOcr = geometry.preprocessForOcr(geometry.cropRegion(straight, titleRect), CONFIG.ocr);
+        sku = extractSku(await recognizeSkuText(skuOcr));
+        title = extractTitle(await recognizeTitleText(titleOcr));
+      }
+      mat.delete();
+      return { corners, diagnostics, sku, title };
+    }
+
+    // Normalize titles for comparison (case + whitespace insensitive).
+    const normTitle = (s) => (s || '').toUpperCase().replace(/\s+/g, ' ').trim();
+```
+
+- [ ] **Step 3: Replace the smoke-only tail with the scoreboard loop**
+
+Replace the smoke-only tail (from `// Smoke test first.` through the end of the module script) with:
+
+```js
+    let positivesTotal = 0, positivesDetected = 0, falseDetections = 0;
+    let skuTotal = 0, skuCorrect = 0, titleTotal = 0, titleCorrect = 0;
+
+    // Load OCR only if some sample actually asks for end-to-end checks.
+    const needsOcr = SAMPLES.some((s) => s.expectSku || s.expectTitle);
+    if (needsOcr) { statusEl.textContent = 'Loading OCR…'; await initOcr(); }
+    statusEl.textContent = 'Running…';
+
     // Load an image file from test/samples/ onto an RGBA canvas.
     async function loadSample(file) {
       const img = new Image();
@@ -883,9 +946,25 @@ Then replace the smoke-only tail (from `// Smoke test first.` through the end of
       return c;
     }
 
-    let positivesTotal = 0, positivesDetected = 0, falseDetections = 0;
+    // Append SKU/title check lines to a card and update the tallies.
+    function appendOcr(cardTitle, sample, res) {
+      const parts = [];
+      if (sample.expectSku) {
+        skuTotal++;
+        const ok = res.sku === sample.expectSku;
+        if (ok) skuCorrect++;
+        parts.push(`SKU ${ok ? '✓' : '✗'} got "${res.sku ?? '—'}" want "${sample.expectSku}"`);
+      }
+      if (sample.expectTitle) {
+        titleTotal++;
+        const ok = normTitle(res.title) === normTitle(sample.expectTitle);
+        if (ok) titleCorrect++;
+        parts.push(`title ${ok ? '✓' : '✗'} got "${res.title ?? '—'}" want "${sample.expectTitle}"`);
+      }
+      return parts.join('\n');
+    }
 
-    // Smoke test first (counts as a positive).
+    // Smoke test first (detection-only positive).
     const smoke = makeSyntheticFrame();
     const smokeRes = runDetect(smoke);
     positivesTotal++;
@@ -901,7 +980,7 @@ Then replace the smoke-only tail (from `// Smoke test first.` through the end of
         renderCard(`${s.file} (load error)`, makeSyntheticFrame(), null, {}, false);
         continue;
       }
-      const res = runDetect(srcCanvas);
+      const res = await runFullPipeline(srcCanvas, s);
       const detected = !!res.corners;
       let passed;
       if (s.expect === 'packet') {
@@ -913,32 +992,41 @@ Then replace the smoke-only tail (from `// Smoke test first.` through the end of
         passed = !detected;
       }
       renderCard(`${s.file} — ${s.note || s.expect}`, srcCanvas, res.corners, res.diagnostics, passed);
+      if (s.expect === 'packet' && (s.expectSku || s.expectTitle)) {
+        const ocrLine = document.createElement('div');
+        ocrLine.className = 'scores';
+        ocrLine.textContent = appendOcr(s.file, s, res);
+        grid.lastChild.appendChild(ocrLine);
+      }
     }
 
+    const ocrSummary = (skuTotal || titleTotal)
+      ? ` · SKU correct ${skuCorrect}/${skuTotal} · title correct ${titleCorrect}/${titleTotal}`
+      : '';
     summaryEl.textContent =
-      `positives detected ${positivesDetected}/${positivesTotal} · false detections ${falseDetections}`;
+      `positives detected ${positivesDetected}/${positivesTotal} · false detections ${falseDetections}${ocrSummary}`;
     statusEl.textContent = 'Done.';
 ```
 
-- [ ] **Step 2: Verify the scoreboard renders**
+- [ ] **Step 4: Verify the scoreboard renders**
 
 Reload `http://localhost:3000/test/harness.html`.
-Expected: with an empty `SAMPLES`, one card (synthetic smoke, PASS) and summary `positives detected 1/1 · false detections 0`. No console errors. (Once you add photos to `test/samples/` and entries to `manifest.js`, each renders a card and the tally updates.)
+Expected: with an empty `SAMPLES`, one card (synthetic smoke, PASS) and summary `positives detected 1/1 · false detections 0` (no OCR segment, since no sample requested it). No console errors. Once you add photos to `test/samples/` and entries to `manifest.js`, each renders a card; samples with `expectSku`/`expectTitle` also show SKU/title ✓/✗ lines and the summary gains `SKU correct X/Y · title correct X/Y`.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add test/harness.html
-git commit -m "Add image scoreboard to detection harness"
+git commit -m "Add image + end-to-end SKU/title scoreboard to detection harness"
 ```
 
-- [ ] **Step 4 (maintainer, manual): capture and commit sample photos**
+- [ ] **Step 6 (maintainer, manual): capture and commit sample photos**
 
 This step needs real photos and is done by the maintainer, not the agent:
 1. Capture ~10–20 frames per Task 4's manifest guidance (closed + opened, plain + phone-shadow backgrounds, a couple of `none` distractors) and copy them into `test/samples/`.
-2. List each in `test/manifest.js` with its `expect` and `note`.
-3. **Target:** the scoreboard should read `positives detected Y/Y` (every real-packet sample detected) with `false detections 0`.
-4. If a `packet` sample is missed or a `none` sample is detected, tune `CONFIG.detection` (`aspectTolerance`, `rectangularityFloor`, `scoreWeights`, `morphKernelSize`) and reload until the scoreboard is clean. For a direct A/B against the old detector, temporarily restore `main`'s versions of just the detector files and reload the harness (it imports only `detect`/`CONFIG`, so it still runs): `git checkout main -- js/rectDetector.js js/config.js`, note the numbers, then restore the branch versions with `git checkout HEAD -- js/rectDetector.js js/config.js`.
+2. List each in `test/manifest.js` with its `expect` and `note`; on `packet` samples, add `expectSku`/`expectTitle` (the letters-only SKU and the printed title) to enable end-to-end checks.
+3. **Target:** the scoreboard should read `positives detected Y/Y` (every real-packet sample detected) with `false detections 0`, and SKU/title accuracy should be **no worse** than on `main`.
+4. If a `packet` sample is missed, a `none` sample is detected, or SKU/title accuracy drops, tune `CONFIG.detection` (`aspectTolerance`, `rectangularityFloor`, `scoreWeights`, `morphKernelSize`) and reload until clean. For a direct A/B against the old detector, temporarily restore `main`'s versions of just the detector files and reload the harness (it imports only `detect`/`CONFIG`, so it still runs): `git checkout main -- js/rectDetector.js js/config.js`, note the numbers, then restore the branch versions with `git checkout HEAD -- js/rectDetector.js js/config.js`.
 5. Commit the samples and manifest:
 ```bash
 git add test/samples/ test/manifest.js
