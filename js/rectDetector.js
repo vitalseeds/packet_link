@@ -154,12 +154,19 @@ function matToPoints(mat) {
   return pts;
 }
 
-// Standard "order points" trick: the top-left corner has the smallest
-// x+y, the bottom-right the largest; the top-right has the smallest
-// y-x, the bottom-left the largest. Assumes the packet is held roughly
-// upright (not upside down) relative to the camera.
-function orderCorners(pts) {
-  const bySum = [...pts].sort((a, b) => a.x + a.y - (b.x + b.y));
-  const byDiff = [...pts].sort((a, b) => a.y - a.x - (b.y - b.x));
-  return [bySum[0], byDiff[0], bySum[3], byDiff[3]]; // TL, TR, BR, BL
+// Orders 4 corners as [TL, TR, BR, BL], robust to rotation up to ~45° (well
+// past the point where an x+y / y-x sort flips corners). Partition the points
+// into a left pair and a right pair by x first; within the left pair the
+// smaller-y point is TL and the larger-y is BL; the right pair's TR/BR are
+// disambiguated by distance from TL (BR is the farther one). Assumes the
+// packet is roughly upright — beyond ~45° the app's fixed-layout SKU crop
+// breaks regardless, so this is not meant to handle sideways/upside-down.
+export function orderCorners(pts) {
+  const byX = [...pts].sort((a, b) => a.x - b.x);
+  const left = byX.slice(0, 2);
+  const right = byX.slice(2);
+  const [tl, bl] = left[0].y < left[1].y ? [left[0], left[1]] : [left[1], left[0]];
+  const dTo = (p) => Math.hypot(p.x - tl.x, p.y - tl.y);
+  const [tr, br] = dTo(right[0]) < dTo(right[1]) ? [right[0], right[1]] : [right[1], right[0]];
+  return [tl, tr, br, bl];
 }

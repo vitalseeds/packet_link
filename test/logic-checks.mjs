@@ -42,4 +42,19 @@ assert.ok(
   scoreCandidate({ ...goodClosed, rectangularity: 0.85 }, CONFIG).score
 );
 
+// --- Task 3: orderCorners ---
+import { orderCorners } from '../js/rectDetector.js';
+
+// Axis-aligned rectangle handed in scrambled -> canonical TL,TR,BR,BL.
+{
+  const tl = { x: 0, y: 0 }, tr = { x: 10, y: 0 }, br = { x: 10, y: 14 }, bl = { x: 0, y: 14 };
+  assert.deepEqual(orderCorners([br, tl, bl, tr]), [tl, tr, br, bl]);
+}
+// Rotated quad (integer coords) still resolves correctly.
+// Input scrambled; expected order is TL,TR,BR,BL.
+assert.deepEqual(
+  orderCorners([{ x: 9, y: 16 }, { x: 3, y: 0 }, { x: 0, y: 11 }, { x: 12, y: 5 }]),
+  [{ x: 3, y: 0 }, { x: 12, y: 5 }, { x: 9, y: 16 }, { x: 0, y: 11 }]
+);
+
 console.log('logic checks passed');
