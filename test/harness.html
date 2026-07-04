@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Packet detection harness</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1rem; background: #111; color: #eee; }
+    h1 { font-size: 1.2rem; }
+    #summary { font-size: 1.1rem; font-weight: bold; margin: 0.5rem 0 1rem; }
+    .grid { display: flex; flex-wrap: wrap; gap: 1rem; }
+    .card { border: 1px solid #333; padding: 0.5rem; border-radius: 6px; max-width: 320px; }
+    .card canvas { max-width: 300px; height: auto; display: block; background: #000; }
+    .pass { color: #2ecc71; } .fail { color: #e74c3c; }
+    .scores { font-size: 0.8rem; white-space: pre-wrap; color: #aaa; }
+  </style>
+</head>
+<body>
+  <h1>Packet detection harness</h1>
+  <p id="status">Loading OpenCV…</p>
+  <div id="summary"></div>
+  <div id="grid" class="grid"></div>
+
+  <script>
+    // OpenCV.js signals readiness through Module.onRuntimeInitialized; wrap it
+    // in a promise the module script below can await.
+    window.cvReady = new Promise((resolve) => {
+      window.Module = { onRuntimeInitialized: () => resolve() };
+    });
+  </script>
+  <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+
+  <script type="module">
+    await window.cvReady;
+    const { CONFIG } = await import('../js/config.js');
+    const { detect } = await import('../js/rectDetector.js');
+
+    const grid = document.getElementById('grid');
+    const statusEl = document.getElementById('status');
+    const summaryEl = document.getElementById('summary');
+
+    // Draw the detected quad (green) over a frame on a display canvas.
+    function drawResult(srcCanvas, corners) {
+      const c = document.createElement('canvas');
+      c.width = srcCanvas.width; c.height = srcCanvas.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(srcCanvas, 0, 0);
+      if (corners) {
+        ctx.strokeStyle = '#2ecc71'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(corners[0].x, corners[0].y);
+        for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
+        ctx.closePath(); ctx.stroke();
+      }
+      return c;
+    }
+
+    function renderCard(title, srcCanvas, corners, diagnostics, passed) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      const h = document.createElement('div');
+      h.innerHTML = `<strong>${title}</strong> — ` +
+        `<span class="${passed ? 'pass' : 'fail'}">${passed ? 'PASS' : 'FAIL'}</span>`;
+      card.appendChild(h);
+      card.appendChild(drawResult(srcCanvas, corners));
+      const scores = document.createElement('div');
+      scores.className = 'scores';
+      scores.textContent = (diagnostics.candidates || [])
+        .map((c, i) => {
+          const tag = i === diagnostics.winnerIndex ? '* ' : '  ';
+          const s = c.score !== undefined ? c.score.toFixed(3) : '-';
+          const reason = c.rejectReason ? ` (${c.rejectReason})` : '';
+          return `${tag}score ${s} aspect ${c.aspect.toFixed(2)} rect ${c.rectangularity.toFixed(2)}${reason}`;
+        })
+        .join('\n');
+      card.appendChild(scores);
+      grid.appendChild(card);
+    }
+
+    // Run detect() over one RGBA source canvas; returns { corners, diagnostics }.
+    function runDetect(srcCanvas) {
+      const mat = cv.imread(srcCanvas);
+      const diagnostics = {};
+      const corners = detect(mat, CONFIG, diagnostics);
+      mat.delete();
+      return { corners, diagnostics };
+    }
+
+    // Synthetic smoke frame: a light rounded rectangle (~1.39 aspect) on a dark
+    // background. Deterministic, needs no captured photo — exercises the whole
+    // OpenCV pipeline so this harness is useful before real samples exist.
+    function makeSyntheticFrame() {
+      const c = document.createElement('canvas');
+      c.width = 300; c.height = 420;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.fillStyle = '#e8e4d8';
+      ctx.fillRect(40, 40, 220, 306); // 220x306 -> aspect 1.39 (the closed-packet ratio)
+      return c;
+    }
+
+    statusEl.textContent = 'Running…';
+
+    // Smoke test first.
+    const smoke = makeSyntheticFrame();
+    const smokeRes = runDetect(smoke);
+    renderCard('synthetic smoke', smoke, smokeRes.corners, smokeRes.diagnostics, !!smokeRes.corners);
+
+    summaryEl.textContent = `smoke: ${smokeRes.corners ? 'detected' : 'MISSED'}`;
+    statusEl.textContent = 'Done.';
+  </script>
+</body>
+</html>
