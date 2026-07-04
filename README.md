@@ -20,10 +20,11 @@ reference photo per template), this looks for the packet's own edges —
 "an obvious rectangle" against its background:
 
 1. **Find the outline** — [OpenCV.js](https://docs.opencv.org/4.x/opencv.js)
-   runs Canny edge detection and `cv.findContours` on the frame, then keeps
-   the largest contour that simplifies (`cv.approxPolyDP`) to a convex
-   4-sided shape taking up a sensible fraction of the frame — that's taken
-   to be the packet.
+   runs Canny edge detection, morphological closing, and `cv.findContours`
+   on the frame. Each contour is reduced to a 4-corner quad and scored on
+   rectangularity, aspect ratio (matched against the packet's closed 1.39
+   and opened 1.74 ratios), and size; the highest-scoring candidate is
+   taken to be the packet.
 2. **Crop and straighten** — the 4 corners go straight into
    `cv.getPerspectiveTransform` + `cv.warpPerspective` to undo
    rotation/perspective into an upright rectangle, sized from the corners'
@@ -56,6 +57,23 @@ npx serve .
 
 Then visit the printed URL on a phone (or `localhost` in a desktop browser
 with a webcam).
+
+## Testing detection changes
+
+Detection is tuned empirically, so there are two tools for it:
+
+- **Offline harness** — `test/harness.html`. Serve the repo
+  (`npx serve .`) and open `/test/harness.html`. It runs the real
+  `detect()` over a built-in synthetic frame plus every photo listed in
+  `test/manifest.js` (files live in `test/samples/`), drawing the detected
+  quad and each candidate's score, with a `positives detected X/Y · false
+  detections Z` summary. Run it on `main` and on a branch to compare
+  detection rates before merging.
+- **Pure-logic checks** — `node test/logic-checks.mjs` runs fast
+  assertions over the OpenCV-free scoring/ordering functions.
+- **Live debug overlay** — open the app with `?debug=1` to see every
+  detection candidate (winner green, rejected dim) with its score or reject
+  reason drawn over the camera feed.
 
 ## Versioning
 
