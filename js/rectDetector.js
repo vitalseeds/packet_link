@@ -47,10 +47,13 @@ export function detect(frameMat, CONFIG) {
   const edges = new cv.Mat();
   cv.Canny(blurred, edges, CONFIG.detection.cannyLow, CONFIG.detection.cannyHigh);
 
-  // Dilate so broken/anti-aliased edge segments join into closed contours.
-  const dilated = new cv.Mat();
-  const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
-  cv.dilate(edges, dilated, kernel);
+  // Morphological closing (dilate-then-erode) so broken/anti-aliased edge
+  // segments — including an outer edge cut by the phone's own shadow — rejoin
+  // into closed contours, WITHOUT the net-thickening that plain dilation
+  // causes (which drags corners inward and merges the edge with clutter).
+  const closed = new cv.Mat();
+  const kernel = cv.Mat.ones(CONFIG.detection.morphKernelSize, CONFIG.detection.morphKernelSize, cv.CV_8U);
+  cv.morphologyEx(edges, closed, cv.MORPH_CLOSE, kernel);
 
   // RETR_EXTERNAL only, not RETR_LIST: the packet has a printed decorative
   // border inset slightly from its physical edge, which is itself a
@@ -63,7 +66,7 @@ export function detect(frameMat, CONFIG) {
   // nested contours entirely, so that inner border is never a candidate.
   const contours = new cv.MatVector();
   const hierarchy = new cv.Mat();
-  cv.findContours(dilated, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+  cv.findContours(closed, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
   const frameArea = workMat.rows * workMat.cols;
   let best = null;
@@ -95,7 +98,7 @@ export function detect(frameMat, CONFIG) {
   gray.delete();
   blurred.delete();
   edges.delete();
-  dilated.delete();
+  closed.delete();
   kernel.delete();
   contours.delete();
   hierarchy.delete();
