@@ -19,6 +19,7 @@
     .hint { font-size: 0.85rem; color: #aaa; margin: 0 0 0.25rem; }
     .confirm { display: block; margin-top: 0.4rem; font-size: 0.8rem; color: #ddd; cursor: pointer; }
     .confirm input { margin-right: 0.35rem; vertical-align: middle; }
+    summary { cursor: pointer; font-size: 0.8rem; color: #888; margin-top: 0.4rem; }
   </style>
 </head>
 <body>
@@ -110,17 +111,30 @@
         `<span class="${passed ? 'pass' : 'fail'}">${passed ? 'PASS' : 'FAIL'}</span>`;
       card.appendChild(h);
       card.appendChild(drawResult(srcCanvas, corners));
+
+      // Per-candidate scores, collapsed by default (RETR_LIST can produce
+      // hundreds/thousands on a busy background) and capped to the top 25 by
+      // score so the DOM stays light — the winner and the strongest rejects.
+      const cands = diagnostics.candidates || [];
+      const winner = diagnostics.winnerIndex != null ? cands[diagnostics.winnerIndex] : null;
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = `candidates: ${cands.length}`;
+      details.appendChild(summary);
       const scores = document.createElement('div');
       scores.className = 'scores';
-      scores.textContent = (diagnostics.candidates || [])
-        .map((c, i) => {
-          const tag = i === diagnostics.winnerIndex ? '* ' : '  ';
+      scores.textContent = [...cands]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 25)
+        .map((c) => {
+          const tag = c === winner ? '* ' : '  ';
           const s = c.score !== undefined ? c.score.toFixed(3) : '-';
           const reason = c.rejectReason ? ` (${c.rejectReason})` : '';
           return `${tag}score ${s} aspect ${c.aspect.toFixed(2)} rect ${c.rectangularity.toFixed(2)}${reason}`;
         })
         .join('\n');
-      card.appendChild(scores);
+      details.appendChild(scores);
+      card.appendChild(details);
       grid.appendChild(card);
     }
 

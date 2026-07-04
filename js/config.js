@@ -106,10 +106,12 @@ export const CONFIG = {
     claheClipLimit: 2.0,
     claheTileGridSize: 8,
     // Morphological-closing kernel side length (px, on the downscaled edge
-    // map). Closing = dilate-then-erode: reconnects an outer edge broken by
-    // the phone's own shadow without the net-thickening plain dilation causes
-    // (thickening drags corners inward and merges the edge with clutter).
-    morphKernelSize: 3,
+    // map). Closing = dilate-then-erode: reconnects a packet border broken by
+    // shadow / low contrast / blur into one closed contour, without the
+    // net-thickening plain dilation causes. Raised 3->5 to bridge the larger
+    // gaps seen on busy/low-contrast backgrounds where the border otherwise
+    // fragments and never forms a full-rectangle contour.
+    morphKernelSize: 5,
     // The packet's valid long/short aspect ratios: closed (92x128 -> 1.39)
     // and opened with the flap exposed (92x160 -> 1.74). A candidate must sit
     // within aspectTolerance of one of these to count as a packet — matching
