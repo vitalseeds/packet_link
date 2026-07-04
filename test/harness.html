@@ -17,6 +17,8 @@
       background: #000; color: #ddd; font-family: monospace; font-size: 0.8rem;
       border: 1px solid #333; border-radius: 6px; padding: 0.5rem; }
     .hint { font-size: 0.85rem; color: #aaa; margin: 0 0 0.25rem; }
+    .confirm { display: block; margin-top: 0.4rem; font-size: 0.8rem; color: #ddd; cursor: pointer; }
+    .confirm input { margin-right: 0.35rem; vertical-align: middle; }
   </style>
 </head>
 <body>
@@ -52,8 +54,10 @@
     const summaryEl = document.getElementById('summary');
     const reportEl = document.getElementById('report');
 
-    // Plain-text, copy-pasteable lines accumulated as the run proceeds.
-    const reportLines = [];
+    // Per-sample records for the (re)buildable report. Each holds the auto
+    // report line plus an optional manual-accuracy checkbox (present only when
+    // a quad was drawn, i.e. there is something to visually confirm).
+    const records = [];
 
     // Winning candidate's score for the report, or '-' if none was selected.
     function winnerScore(diagnostics) {
@@ -206,15 +210,57 @@
       return parts.join('\n');
     }
 
+    // A manual-accuracy checkbox for a card that drew a quad — lets a human
+    // confirm the green box actually sits on the packet (a detection PASS only
+    // means *a* quad was found, not that it is correct). Toggling rebuilds the
+    // report so the confirmation is captured in the copy-pasteable text.
+    function addAccuracyCheckbox(card) {
+      const label = document.createElement('label');
+      label.className = 'confirm';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.addEventListener('change', buildReport);
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(' quad accurate (manual check)'));
+      card.appendChild(label);
+      return cb;
+    }
+
+    // (Re)build the summary line and copy-pasteable report from the fixed run
+    // tallies plus the current checkbox states. Called once when the run ends,
+    // then again on every manual-confirmation toggle.
+    function buildReport() {
+      const d = CONFIG.detection;
+      const ocrSummary = (skuTotal || titleTotal)
+        ? ` · SKU correct ${skuCorrect}/${skuTotal} · title correct ${titleCorrect}/${titleTotal}`
+        : '';
+      const confirmable = records.filter((r) => r.checkbox).length;
+      const confirmed = records.filter((r) => r.checkbox && r.checkbox.checked).length;
+      const summaryText =
+        `positives detected ${positivesDetected}/${positivesTotal} · false detections ${falseDetections}` +
+        `${ocrSummary} · manually-confirmed accurate ${confirmed}/${confirmable}`;
+      summaryEl.textContent = summaryText;
+      const configLine =
+        `config v${VERSION}: aspectTolerance=${d.aspectTolerance} rectangularityFloor=${d.rectangularityFloor}` +
+        ` minScore=${d.minScore} weights=${JSON.stringify(d.scoreWeights)} morphKernel=${d.morphKernelSize}` +
+        ` expectedAspects=${JSON.stringify(d.expectedAspects)}`;
+      const lines = records.map((r) =>
+        r.autoLine + (r.checkbox ? `  [manual: ${r.checkbox.checked ? '✓ accurate' : '· unconfirmed'}]` : ''));
+      reportEl.value = ['=== packet detection harness report ===', summaryText, configLine, '', ...lines].join('\n');
+    }
+
     // Smoke test first (detection-only positive).
     const smoke = makeSyntheticFrame();
     const smokeRes = runDetect(smoke);
     positivesTotal++;
     if (smokeRes.corners) positivesDetected++;
     renderCard('synthetic smoke', smoke, smokeRes.corners, smokeRes.diagnostics, !!smokeRes.corners);
-    reportLines.push(smokeRes.corners
-      ? `[PASS] synthetic-smoke  detected score ${winnerScore(smokeRes.diagnostics)}`
-      : `[FAIL] synthetic-smoke  MISSED`);
+    records.push({
+      autoLine: smokeRes.corners
+        ? `[PASS] synthetic-smoke  detected score ${winnerScore(smokeRes.diagnostics)}`
+        : `[FAIL] synthetic-smoke  MISSED`,
+      checkbox: smokeRes.corners ? addAccuracyCheckbox(grid.lastChild) : null,
+    });
 
     // Then every manifest sample.
     for (const s of SAMPLES) {
@@ -223,7 +269,7 @@
         srcCanvas = await loadSample(s.file);
       } catch (err) {
         renderCard(`${s.file} (load error)`, makeSyntheticFrame(), null, {}, false);
-        reportLines.push(`[FAIL] ${s.file}  LOAD-ERROR`);
+        records.push({ autoLine: `[FAIL] ${s.file}  LOAD-ERROR`, checkbox: null });
         continue;
       }
       const res = await runFullPipeline(srcCanvas, s);
@@ -246,10 +292,10 @@
       }
 
       // One compact report line per sample.
-      let line;
+      let autoLine;
       if (s.expect === 'packet') {
         if (!detected) {
-          line = `[FAIL] ${s.file}  MISSED  (${missReason(res.diagnostics)})`;
+          autoLine = `[FAIL] ${s.file}  MISSED  (${missReason(res.diagnostics)})`;
         } else {
           let skuPart = '';
           if (s.expectSku) {
@@ -261,30 +307,17 @@
             const ok = normTitle(res.title) === normTitle(s.expectTitle);
             titlePart = `  title ${ok ? '✓' : '✗'} "${res.title ?? '—'}"${ok ? '' : ` want "${s.expectTitle}"`}`;
           }
-          line = `[${passed ? 'PASS' : 'FAIL'}] ${s.file}  detected score ${winnerScore(res.diagnostics)} ${winnerInfo(res.diagnostics)}${skuPart}${titlePart}`;
+          autoLine = `[${passed ? 'PASS' : 'FAIL'}] ${s.file}  detected score ${winnerScore(res.diagnostics)} ${winnerInfo(res.diagnostics)}${skuPart}${titlePart}`;
         }
       } else {
-        line = detected
+        autoLine = detected
           ? `[FAIL] ${s.file}  FALSE-DETECT score ${winnerScore(res.diagnostics)} ${winnerInfo(res.diagnostics)}`
           : `[PASS] ${s.file}  correctly-rejected`;
       }
-      reportLines.push(line);
+      records.push({ autoLine, checkbox: detected ? addAccuracyCheckbox(grid.lastChild) : null });
     }
 
-    const ocrSummary = (skuTotal || titleTotal)
-      ? ` · SKU correct ${skuCorrect}/${skuTotal} · title correct ${titleCorrect}/${titleTotal}`
-      : '';
-    const summaryText =
-      `positives detected ${positivesDetected}/${positivesTotal} · false detections ${falseDetections}${ocrSummary}`;
-    summaryEl.textContent = summaryText;
-
-    // Assemble the copy-pasteable report: totals, the config that produced them
-    // (so tuning is traceable), then one line per sample.
-    const d = CONFIG.detection;
-    const configLine =
-      `config v${VERSION}: aspectTolerance=${d.aspectTolerance} rectangularityFloor=${d.rectangularityFloor}` +
-      ` weights=${JSON.stringify(d.scoreWeights)} morphKernel=${d.morphKernelSize} expectedAspects=${JSON.stringify(d.expectedAspects)}`;
-    reportEl.value = ['=== packet detection harness report ===', summaryText, configLine, '', ...reportLines].join('\n');
+    buildReport();
     console.log(reportEl.value);
     statusEl.textContent = 'Done.';
   </script>
