@@ -34,28 +34,27 @@ export function detect(frameMat, CONFIG, diagnostics) {
   const candidates = extractCandidates(edges, frameArea, CONFIG);
   edges.delete();
 
-  // INTERIM selection (behaviour-preserving): largest in-range area wins.
-  // Task 7 replaces this block with scoreCandidate-based selection.
+  // Score every candidate; the highest-scoring one that clears the hard gates
+  // wins. Replacing largest-area selection is what keeps the SAME candidate
+  // chosen frame to frame (less flicker -> faster, steadier lock-on).
   let best = null;
-  let bestArea = 0;
+  let bestScore = -Infinity;
   let winnerIndex = null;
-  candidates.forEach((c, i) => {
-    if (
-      c.areaFraction > d.minAreaFraction &&
-      c.areaFraction < d.maxAreaFraction &&
-      c.area > bestArea
-    ) {
-      bestArea = c.area;
+  const scored = candidates.map((c, i) => {
+    const s = scoreCandidate(c, CONFIG);
+    if (s.pass && s.score > bestScore) {
+      bestScore = s.score;
       best = c;
       winnerIndex = i;
     }
+    return { ...c, ...s };
   });
 
   if (workMat !== frameMat) workMat.delete();
 
   const rescale = scale < 1 ? (p) => ({ x: p.x / scale, y: p.y / scale }) : (p) => p;
   if (diagnostics) {
-    diagnostics.candidates = candidates.map((c) => ({ ...c, corners: c.corners.map(rescale) }));
+    diagnostics.candidates = scored.map((c) => ({ ...c, corners: c.corners.map(rescale) }));
     diagnostics.winnerIndex = winnerIndex;
   }
   return best ? orderCorners(best.corners.map(rescale)) : null;
