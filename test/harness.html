@@ -13,12 +13,18 @@
     .card canvas { max-width: 300px; height: auto; display: block; background: #000; }
     .pass { color: #2ecc71; } .fail { color: #e74c3c; }
     .scores { font-size: 0.8rem; white-space: pre-wrap; color: #aaa; }
+    #report { width: 100%; box-sizing: border-box; height: 20rem; margin-bottom: 1rem;
+      background: #000; color: #ddd; font-family: monospace; font-size: 0.8rem;
+      border: 1px solid #333; border-radius: 6px; padding: 0.5rem; }
+    .hint { font-size: 0.85rem; color: #aaa; margin: 0 0 0.25rem; }
   </style>
 </head>
 <body>
   <h1>Packet detection harness</h1>
   <p id="status">Loading OpenCV…</p>
   <div id="summary"></div>
+  <p class="hint">Copyable report — click inside the box, select all (Ctrl/Cmd-A), copy, and paste it back:</p>
+  <textarea id="report" readonly placeholder="report appears here when the run finishes…"></textarea>
   <div id="grid" class="grid"></div>
 
   <script>
@@ -33,7 +39,7 @@
 
   <script type="module">
     await window.cvReady;
-    const { CONFIG } = await import('../js/config.js');
+    const { CONFIG, VERSION } = await import('../js/config.js');
     const { detect } = await import('../js/rectDetector.js');
     const { SAMPLES } = await import('./manifest.js');
     const geometry = await import('../js/packetGeometry.js');
@@ -44,6 +50,17 @@
     const grid = document.getElementById('grid');
     const statusEl = document.getElementById('status');
     const summaryEl = document.getElementById('summary');
+    const reportEl = document.getElementById('report');
+
+    // Plain-text, copy-pasteable lines accumulated as the run proceeds.
+    const reportLines = [];
+
+    // Winning candidate's score for the report, or '-' if none was selected.
+    function winnerScore(diagnostics) {
+      const w = diagnostics && diagnostics.winnerIndex != null
+        ? diagnostics.candidates[diagnostics.winnerIndex] : null;
+      return w ? w.score.toFixed(3) : '-';
+    }
 
     // Draw the detected quad (green) over a frame on a display canvas.
     function drawResult(srcCanvas, corners) {
@@ -174,6 +191,9 @@
     positivesTotal++;
     if (smokeRes.corners) positivesDetected++;
     renderCard('synthetic smoke', smoke, smokeRes.corners, smokeRes.diagnostics, !!smokeRes.corners);
+    reportLines.push(smokeRes.corners
+      ? `[PASS] synthetic-smoke  detected score ${winnerScore(smokeRes.diagnostics)}`
+      : `[FAIL] synthetic-smoke  MISSED`);
 
     // Then every manifest sample.
     for (const s of SAMPLES) {
@@ -182,6 +202,7 @@
         srcCanvas = await loadSample(s.file);
       } catch (err) {
         renderCard(`${s.file} (load error)`, makeSyntheticFrame(), null, {}, false);
+        reportLines.push(`[FAIL] ${s.file}  LOAD-ERROR`);
         continue;
       }
       const res = await runFullPipeline(srcCanvas, s);
@@ -202,13 +223,48 @@
         ocrLine.textContent = appendOcr(s.file, s, res);
         grid.lastChild.appendChild(ocrLine);
       }
+
+      // One compact report line per sample.
+      let line;
+      if (s.expect === 'packet') {
+        if (!detected) {
+          line = `[FAIL] ${s.file}  MISSED`;
+        } else {
+          let skuPart = '';
+          if (s.expectSku) {
+            const ok = res.sku === s.expectSku;
+            skuPart = `  SKU ${ok ? '✓' : '✗'} "${res.sku ?? '—'}"${ok ? '' : ` want "${s.expectSku}"`}`;
+          }
+          let titlePart = '';
+          if (s.expectTitle) {
+            const ok = normTitle(res.title) === normTitle(s.expectTitle);
+            titlePart = `  title ${ok ? '✓' : '✗'} "${res.title ?? '—'}"${ok ? '' : ` want "${s.expectTitle}"`}`;
+          }
+          line = `[${passed ? 'PASS' : 'FAIL'}] ${s.file}  detected score ${winnerScore(res.diagnostics)}${skuPart}${titlePart}`;
+        }
+      } else {
+        line = detected
+          ? `[FAIL] ${s.file}  FALSE-DETECT score ${winnerScore(res.diagnostics)}`
+          : `[PASS] ${s.file}  correctly-rejected`;
+      }
+      reportLines.push(line);
     }
 
     const ocrSummary = (skuTotal || titleTotal)
       ? ` · SKU correct ${skuCorrect}/${skuTotal} · title correct ${titleCorrect}/${titleTotal}`
       : '';
-    summaryEl.textContent =
+    const summaryText =
       `positives detected ${positivesDetected}/${positivesTotal} · false detections ${falseDetections}${ocrSummary}`;
+    summaryEl.textContent = summaryText;
+
+    // Assemble the copy-pasteable report: totals, the config that produced them
+    // (so tuning is traceable), then one line per sample.
+    const d = CONFIG.detection;
+    const configLine =
+      `config v${VERSION}: aspectTolerance=${d.aspectTolerance} rectangularityFloor=${d.rectangularityFloor}` +
+      ` weights=${JSON.stringify(d.scoreWeights)} morphKernel=${d.morphKernelSize} expectedAspects=${JSON.stringify(d.expectedAspects)}`;
+    reportEl.value = ['=== packet detection harness report ===', summaryText, configLine, '', ...reportLines].join('\n');
+    console.log(reportEl.value);
     statusEl.textContent = 'Done.';
   </script>
 </body>
