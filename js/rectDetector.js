@@ -135,24 +135,28 @@ function extractCandidates(edges, frameArea, CONFIG) {
 // Reduces a contour to exactly 4 convex corner points, tolerating outlines that
 // approxPolyDP renders as 5-6 points at the base epsilon by sweeping epsilon
 // upward. Returns [{x,y}*4] or null. This is the source of the WARP corners.
+//
+// approxPolyDP runs on the raw contour, NOT its convex hull: hulling first
+// wrapped any stray edges bridged onto the packet's contour (background
+// texture, a hand, a shelf edge) into a clean quad that ballooned well outside
+// the true packet edge — the observed "green box way bigger than the packet".
+// Simplifying the contour itself keeps the corners on the real outline, and a
+// genuinely messy blob simply fails to reduce to a convex 4-gon and is dropped.
 function reduceToQuad(contour, CONFIG) {
   const d = CONFIG.detection;
-  const hull = new cv.Mat();
-  cv.convexHull(contour, hull, false, true);
-  const perimeter = cv.arcLength(hull, true);
+  const perimeter = cv.arcLength(contour, true);
 
   let result = null;
   const approx = new cv.Mat();
   for (let step = 0; step < d.reduceEpsilonSteps; step++) {
     const epsilon = d.approxEpsilon * perimeter * (1 + step * 0.5);
-    cv.approxPolyDP(hull, approx, epsilon, true);
+    cv.approxPolyDP(contour, approx, epsilon, true);
     if (approx.rows === 4 && cv.isContourConvex(approx)) {
       result = matToPoints(approx);
       break;
     }
   }
   approx.delete();
-  hull.delete();
   return result;
 }
 
