@@ -29,11 +29,17 @@
     });
   </script>
   <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 
   <script type="module">
     await window.cvReady;
     const { CONFIG } = await import('../js/config.js');
     const { detect } = await import('../js/rectDetector.js');
+    const { SAMPLES } = await import('./manifest.js');
+    const geometry = await import('../js/packetGeometry.js');
+    const { initOcr, recognizeSkuText, recognizeTitleText } = await import('../js/ocr.js');
+    const { extractSku } = await import('../js/sku.js');
+    const { extractTitle } = await import('../js/title.js');
 
     const grid = document.getElementById('grid');
     const statusEl = document.getElementById('status');
@@ -85,6 +91,33 @@
       return { corners, diagnostics };
     }
 
+    // Full pipeline for one sample: detect, then (if a packet was found and the
+    // sample declares expected OCR outputs) warp/crop/OCR/extract — mirroring
+    // js/main.js handleStableDetection. Returns { corners, diagnostics, sku,
+    // title }. Detection-only samples skip the OCR half.
+    async function runFullPipeline(srcCanvas, sample) {
+      const mat = cv.imread(srcCanvas);
+      const diagnostics = {};
+      const corners = detect(mat, CONFIG, diagnostics);
+      let sku = null, title = null;
+      const wantsOcr = sample && (sample.expectSku || sample.expectTitle);
+      if (corners && wantsOcr) {
+        const expanded = geometry.expandCorners(corners, CONFIG.output.cornerMarginPercent);
+        const straight = geometry.warpPacketToCanvas(mat, expanded, CONFIG);
+        const skuRect = geometry.remapCropForMargin(CONFIG.skuCrop, CONFIG.output.cornerMarginPercent);
+        const titleRect = geometry.remapCropForMargin(CONFIG.titleCrop, CONFIG.output.cornerMarginPercent);
+        const skuOcr = geometry.preprocessForOcr(geometry.cropRegion(straight, skuRect, CONFIG.skuCropUpscale), CONFIG.ocr);
+        const titleOcr = geometry.preprocessForOcr(geometry.cropRegion(straight, titleRect), CONFIG.ocr);
+        sku = extractSku(await recognizeSkuText(skuOcr));
+        title = extractTitle(await recognizeTitleText(titleOcr));
+      }
+      mat.delete();
+      return { corners, diagnostics, sku, title };
+    }
+
+    // Normalize titles for comparison (case + whitespace insensitive).
+    const normTitle = (s) => (s || '').toUpperCase().replace(/\s+/g, ' ').trim();
+
     // Synthetic smoke frame: a light rounded rectangle (~1.39 aspect) on a dark
     // background. Deterministic, needs no captured photo — exercises the whole
     // OpenCV pipeline so this harness is useful before real samples exist.
@@ -98,14 +131,84 @@
       return c;
     }
 
+    let positivesTotal = 0, positivesDetected = 0, falseDetections = 0;
+    let skuTotal = 0, skuCorrect = 0, titleTotal = 0, titleCorrect = 0;
+
+    // Load OCR only if some sample actually asks for end-to-end checks.
+    const needsOcr = SAMPLES.some((s) => s.expectSku || s.expectTitle);
+    if (needsOcr) { statusEl.textContent = 'Loading OCR…'; await initOcr(); }
     statusEl.textContent = 'Running…';
 
-    // Smoke test first.
+    // Load an image file from test/samples/ onto an RGBA canvas.
+    async function loadSample(file) {
+      const img = new Image();
+      img.src = `samples/${file}`;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      return c;
+    }
+
+    // Append SKU/title check lines to a card and update the tallies.
+    function appendOcr(cardTitle, sample, res) {
+      const parts = [];
+      if (sample.expectSku) {
+        skuTotal++;
+        const ok = res.sku === sample.expectSku;
+        if (ok) skuCorrect++;
+        parts.push(`SKU ${ok ? '✓' : '✗'} got "${res.sku ?? '—'}" want "${sample.expectSku}"`);
+      }
+      if (sample.expectTitle) {
+        titleTotal++;
+        const ok = normTitle(res.title) === normTitle(sample.expectTitle);
+        if (ok) titleCorrect++;
+        parts.push(`title ${ok ? '✓' : '✗'} got "${res.title ?? '—'}" want "${sample.expectTitle}"`);
+      }
+      return parts.join('\n');
+    }
+
+    // Smoke test first (detection-only positive).
     const smoke = makeSyntheticFrame();
     const smokeRes = runDetect(smoke);
+    positivesTotal++;
+    if (smokeRes.corners) positivesDetected++;
     renderCard('synthetic smoke', smoke, smokeRes.corners, smokeRes.diagnostics, !!smokeRes.corners);
 
-    summaryEl.textContent = `smoke: ${smokeRes.corners ? 'detected' : 'MISSED'}`;
+    // Then every manifest sample.
+    for (const s of SAMPLES) {
+      let srcCanvas;
+      try {
+        srcCanvas = await loadSample(s.file);
+      } catch (err) {
+        renderCard(`${s.file} (load error)`, makeSyntheticFrame(), null, {}, false);
+        continue;
+      }
+      const res = await runFullPipeline(srcCanvas, s);
+      const detected = !!res.corners;
+      let passed;
+      if (s.expect === 'packet') {
+        positivesTotal++;
+        if (detected) positivesDetected++;
+        passed = detected;
+      } else {
+        if (detected) falseDetections++;
+        passed = !detected;
+      }
+      renderCard(`${s.file} — ${s.note || s.expect}`, srcCanvas, res.corners, res.diagnostics, passed);
+      if (s.expect === 'packet' && (s.expectSku || s.expectTitle)) {
+        const ocrLine = document.createElement('div');
+        ocrLine.className = 'scores';
+        ocrLine.textContent = appendOcr(s.file, s, res);
+        grid.lastChild.appendChild(ocrLine);
+      }
+    }
+
+    const ocrSummary = (skuTotal || titleTotal)
+      ? ` · SKU correct ${skuCorrect}/${skuTotal} · title correct ${titleCorrect}/${titleTotal}`
+      : '';
+    summaryEl.textContent =
+      `positives detected ${positivesDetected}/${positivesTotal} · false detections ${falseDetections}${ocrSummary}`;
     statusEl.textContent = 'Done.';
   </script>
 </body>
