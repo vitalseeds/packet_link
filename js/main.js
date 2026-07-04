@@ -38,6 +38,10 @@ const resultRaw = document.getElementById('resultRaw');
 const resultTitleThumb = document.getElementById('resultTitleThumb');
 const resultTitleRaw = document.getElementById('resultTitleRaw');
 
+// ?debug=1 turns on an overlay of every detection candidate with its score /
+// reject reason — for tuning on a real phone. Off (and zero-cost) otherwise.
+const DEBUG = new URLSearchParams(location.search).get('debug') === '1';
+
 let scanTimer = null;
 let busy = false;
 let stableCount = 0;
@@ -126,8 +130,10 @@ function scanFrame() {
     ctx.drawImage(video, 0, 0, workCanvas.width, workCanvas.height);
 
     const frameMat = cv.imread(workCanvas);
-    const rawCorners = rectDetector.detect(frameMat, CONFIG);
+    const diagnostics = DEBUG ? {} : undefined;
+    const rawCorners = rectDetector.detect(frameMat, CONFIG, diagnostics);
     overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+    if (DEBUG && diagnostics) drawDebugCandidates(diagnostics);
 
     if (!rawCorners) {
       stableCount = 0;
@@ -246,6 +252,28 @@ function drawOverlayQuad(corners) {
   }
   overlayCtx.closePath();
   overlayCtx.stroke();
+}
+
+// Draws every candidate the detector considered: winner in green, rejected in
+// dim red, each annotated with its score or reject reason. Only called under
+// ?debug=1.
+function drawDebugCandidates(diagnostics) {
+  const cands = diagnostics.candidates || [];
+  cands.forEach((c, i) => {
+    const isWinner = i === diagnostics.winnerIndex;
+    overlayCtx.strokeStyle = isWinner ? '#2ecc71' : 'rgba(231,76,60,0.6)';
+    overlayCtx.lineWidth = isWinner ? 4 : 2;
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(c.corners[0].x, c.corners[0].y);
+    for (let k = 1; k < c.corners.length; k++) overlayCtx.lineTo(c.corners[k].x, c.corners[k].y);
+    overlayCtx.closePath();
+    overlayCtx.stroke();
+
+    const label = c.rejectReason ? c.rejectReason : `score ${(c.score ?? 0).toFixed(2)}`;
+    overlayCtx.fillStyle = isWinner ? '#2ecc71' : 'rgba(231,76,60,0.9)';
+    overlayCtx.font = '16px sans-serif';
+    overlayCtx.fillText(label, c.corners[0].x + 4, c.corners[0].y + 16);
+  });
 }
 
 function setStatus(message) {
