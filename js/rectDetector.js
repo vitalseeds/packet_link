@@ -95,13 +95,17 @@ function preprocess(workMat, CONFIG) {
 // and aspect come from minAreaRect (used for scoring ONLY, never as warp
 // corners — a rotated bounding box would distort an angled packet).
 //
-// RETR_EXTERNAL (not RETR_LIST/RETR_TREE): the packet has a printed decorative
-// inner border that is itself a rectangle. RETR_EXTERNAL ignores nested
-// contours so that inner border is never a candidate.
+// RETR_LIST (every contour, nested included), not RETR_EXTERNAL: on a busy
+// background the texture's edges form one large outer contour and the packet's
+// own outline is nested *inside* it — RETR_EXTERNAL discarded that nested
+// packet outline entirely, so the packet was never even a candidate (only
+// background blobs and fragments were). RETR_LIST surfaces the packet's true
+// outline; the scoring (area/rectangularity/aspect + minScore) then picks it
+// over the smaller printed inner border and over background fragments.
 function extractCandidates(edges, frameArea, CONFIG) {
   const contours = new cv.MatVector();
   const hierarchy = new cv.Mat();
-  cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+  cv.findContours(edges, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
 
   const candidates = [];
   for (let i = 0; i < contours.size(); i++) {
