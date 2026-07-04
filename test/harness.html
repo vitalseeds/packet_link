@@ -62,6 +62,17 @@
       return w ? w.score.toFixed(3) : '-';
     }
 
+    // Why did a MISSED packet fail? Report the largest-area candidate (the best
+    // guess at the packet) and the gate that rejected it — 'no quad candidates'
+    // means the edge/contour stage found nothing quad-shaped at all.
+    function missReason(diagnostics) {
+      const cands = (diagnostics && diagnostics.candidates) || [];
+      if (!cands.length) return 'no quad candidates';
+      const c = cands.reduce((a, b) => (b.areaFraction > a.areaFraction ? b : a));
+      return `reject=${c.rejectReason || '—'} aspect=${c.aspect.toFixed(2)} ` +
+        `rect=${c.rectangularity.toFixed(2)} areaFrac=${c.areaFraction.toFixed(2)} (of ${cands.length})`;
+    }
+
     // Draw the detected quad (green) over a frame on a display canvas.
     function drawResult(srcCanvas, corners) {
       const c = document.createElement('canvas');
@@ -228,7 +239,7 @@
       let line;
       if (s.expect === 'packet') {
         if (!detected) {
-          line = `[FAIL] ${s.file}  MISSED`;
+          line = `[FAIL] ${s.file}  MISSED  (${missReason(res.diagnostics)})`;
         } else {
           let skuPart = '';
           if (s.expectSku) {
