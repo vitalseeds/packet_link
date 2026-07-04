@@ -95,17 +95,19 @@ function preprocess(workMat, CONFIG) {
 // and aspect come from minAreaRect (used for scoring ONLY, never as warp
 // corners — a rotated bounding box would distort an angled packet).
 //
-// RETR_LIST (every contour, nested included), not RETR_EXTERNAL: on a busy
-// background the texture's edges form one large outer contour and the packet's
-// own outline is nested *inside* it — RETR_EXTERNAL discarded that nested
-// packet outline entirely, so the packet was never even a candidate (only
-// background blobs and fragments were). RETR_LIST surfaces the packet's true
-// outline; the scoring (area/rectangularity/aspect + minScore) then picks it
-// over the smaller printed inner border and over background fragments.
+// RETR_EXTERNAL (outermost contours only), not RETR_LIST: RETR_LIST surfaces
+// EVERY contour, which on a busy background is hundreds-to-thousands of texture
+// fragments per frame. Running reduceToQuad over all of them blew the per-frame
+// budget on a phone — detection went sluggish and the winner flickered too much
+// to satisfy the stability gate ("fails to lock without holding extremely
+// steady"). RETR_LIST recovered only one extra sample offline (a nested packet)
+// and is not worth that live cost, so we keep the lean RETR_EXTERNAL. Packets
+// nested inside a busy-background contour will still be missed — that is the
+// hard-background limitation to address later with adaptive threshold / Hough.
 function extractCandidates(edges, frameArea, CONFIG) {
   const contours = new cv.MatVector();
   const hierarchy = new cv.Mat();
-  cv.findContours(edges, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+  cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
   const candidates = [];
   for (let i = 0; i < contours.size(); i++) {
