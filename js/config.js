@@ -120,11 +120,13 @@ export const CONFIG = {
     // entry and still pass / still score. Wide enough to absorb perspective
     // foreshortening; tighten only if false positives appear.
     aspectTolerance: 0.15,
-    // Reject a candidate whose quad fills less than this fraction of its own
-    // minAreaRect (contourArea / minAreaRectArea). Rejects ragged shadow-quads
-    // while staying low enough to keep an opened packet's slightly
-    // off-rectangular tab.
-    rectangularityFloor: 0.8,
+    // Sanity floor on how much of its own minAreaRect a candidate's quad fills
+    // (contourArea / minAreaRectArea) — only excludes grossly non-rectangular
+    // shapes (L/triangle-like). Rectangularity is primarily a SCORE signal
+    // (see scoreWeights), not a hard gate: a high floor here double-penalised
+    // it and was rejecting real but slightly-ragged packets (blur, an opened
+    // flap). Accept/reject confidence is enforced by minScore below instead.
+    rectangularityFloor: 0.5,
     // reduceToQuad sweeps approxPolyDP's epsilon upward from approxEpsilon
     // across this many steps, trying to land on exactly 4 corners before
     // giving up — so a wobbly outline that approximates to 5-6 points still
@@ -136,6 +138,13 @@ export const CONFIG = {
     // things. Replacing area-alone selection is what stops the frame-to-frame
     // flicker that resets the stability counter.
     scoreWeights: { rect: 0.5, aspect: 0.3, area: 0.2 },
+    // Absolute confidence floor: the best-scoring candidate must reach this or
+    // the frame is treated as "no packet". This is the real accept/reject
+    // knob (rectangularityFloor is now just a sanity gate). Tuned so a
+    // near-square/low-aspect distractor like a tablet (~0.52) is rejected
+    // while genuine packets (lowest observed ~0.58) pass — raise it to reject
+    // more borderline objects, lower it to catch weaker packets.
+    minScore: 0.55,
   },
 
   // Preprocessing applied to the SKU/title crops before OCR (see

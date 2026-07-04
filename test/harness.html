@@ -68,8 +68,10 @@
     function missReason(diagnostics) {
       const cands = (diagnostics && diagnostics.candidates) || [];
       if (!cands.length) return 'no quad candidates';
-      const c = cands.reduce((a, b) => (b.areaFraction > a.areaFraction ? b : a));
-      return `reject=${c.rejectReason || '—'} aspect=${c.aspect.toFixed(2)} ` +
+      // Highest-scoring candidate = the best packet guess; its rejectReason (or
+      // 'belowMinScore') is why the frame counted as a miss.
+      const c = cands.reduce((a, b) => (b.score > a.score ? b : a));
+      return `reject=${c.rejectReason || '—'} score=${c.score.toFixed(3)} aspect=${c.aspect.toFixed(2)} ` +
         `rect=${c.rectangularity.toFixed(2)} areaFrac=${c.areaFraction.toFixed(2)} (of ${cands.length})`;
     }
 

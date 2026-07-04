@@ -184,6 +184,10 @@ export function scoreCandidate(f, CONFIG) {
   const aspectMatch = 1 - Math.min(1, aspectDist / d.aspectTolerance);
   const w = d.scoreWeights;
   const score = w.rect * f.rectangularity + w.aspect * aspectMatch + w.area * f.areaFraction;
+  // Absolute confidence floor — a candidate can clear every shape gate yet
+  // still be too weak overall (e.g. a low-aspect-match tablet). Keep the
+  // computed score in the result so diagnostics can show how close it was.
+  if (score < d.minScore) return { pass: false, score, rejectReason: 'belowMinScore' };
   return { pass: true, score, rejectReason: null };
 }
 
