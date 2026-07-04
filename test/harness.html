@@ -75,6 +75,14 @@
         `rect=${c.rectangularity.toFixed(2)} areaFrac=${c.areaFraction.toFixed(2)} (of ${cands.length})`;
     }
 
+    // Compact shape profile of the winning candidate, for detected/false-detect
+    // report lines: [aspect rect areaFrac].
+    function winnerInfo(diagnostics) {
+      const w = diagnostics && diagnostics.winnerIndex != null
+        ? diagnostics.candidates[diagnostics.winnerIndex] : null;
+      return w ? `[a${w.aspect.toFixed(2)} r${w.rectangularity.toFixed(2)} f${w.areaFraction.toFixed(2)}]` : '';
+    }
+
     // Draw the detected quad (green) over a frame on a display canvas.
     function drawResult(srcCanvas, corners) {
       const c = document.createElement('canvas');
@@ -253,11 +261,11 @@
             const ok = normTitle(res.title) === normTitle(s.expectTitle);
             titlePart = `  title ${ok ? '✓' : '✗'} "${res.title ?? '—'}"${ok ? '' : ` want "${s.expectTitle}"`}`;
           }
-          line = `[${passed ? 'PASS' : 'FAIL'}] ${s.file}  detected score ${winnerScore(res.diagnostics)}${skuPart}${titlePart}`;
+          line = `[${passed ? 'PASS' : 'FAIL'}] ${s.file}  detected score ${winnerScore(res.diagnostics)} ${winnerInfo(res.diagnostics)}${skuPart}${titlePart}`;
         }
       } else {
         line = detected
-          ? `[FAIL] ${s.file}  FALSE-DETECT score ${winnerScore(res.diagnostics)}`
+          ? `[FAIL] ${s.file}  FALSE-DETECT score ${winnerScore(res.diagnostics)} ${winnerInfo(res.diagnostics)}`
           : `[PASS] ${s.file}  correctly-rejected`;
       }
       reportLines.push(line);
