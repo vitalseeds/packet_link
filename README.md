@@ -60,20 +60,48 @@ with a webcam).
 
 ## Testing detection changes
 
-Detection is tuned empirically, so there are two tools for it:
+Detection (and the OCR it feeds) is tuned empirically, so there are a few
+tools. The design rationale and the task-by-task plan behind them live in
+`docs/superpowers/specs/` and `docs/superpowers/plans/`.
 
-- **Offline harness** — `test/harness.html`. Serve the repo
-  (`npx serve .`) and open `/test/harness.html`. It runs the real
-  `detect()` over a built-in synthetic frame plus every photo listed in
-  `test/manifest.js` (files live in `test/samples/`), drawing the detected
-  quad and each candidate's score, with a `positives detected X/Y · false
-  detections Z` summary. Run it on `main` and on a branch to compare
-  detection rates before merging.
-- **Pure-logic checks** — `node test/logic-checks.mjs` runs fast
-  assertions over the OpenCV-free scoring/ordering functions.
+- **Offline harness** — `test/harness.html`. Serve the repo (`npx serve .`,
+  or any static server; a secure origin such as a Tailscale hostname works
+  for testing on a phone) and open `/test/harness.html` in a browser — no
+  camera needed. It runs the real `detect()` over a built-in synthetic frame
+  plus every photo in `test/samples/` listed in `test/manifest.js`, drawing
+  the detected quad and each candidate's score. When a sample declares
+  `expectSku` / `expectTitle`, it also runs the **full** pipeline (warp →
+  crop → OCR → extract) and checks the results, so the summary reads e.g.
+  `positives detected 16/16 · false detections 0 · SKU correct 14/15 · title
+  correct 9/15`. A **copy-pasteable report** — per-sample PASS/FAIL, score,
+  SKU/title got-vs-want, and the `CONFIG.detection` values that produced them
+  — appears in a box at the top of the page (and in the console).
+
+- **Compare against `main` (regression check)** — the harness imports only
+  `detect` / `CONFIG`, so you can A/B without leaving the branch: swap in
+  main's detector, reload the harness and copy its report, then restore.
+
+  ```sh
+  git checkout main -- js/rectDetector.js js/config.js   # reload harness, copy report
+  git checkout HEAD  -- js/rectDetector.js js/config.js   # restore branch, reload again
+  ```
+
+  The branch should detect **≥** as many packets as `main` with no new false
+  detections.
+
+- **Adding samples** — name files `<SKU>_<description>.jpg` (or `<SKU>.jpg`),
+  drop them in `test/samples/`, and add an entry to `test/manifest.js`
+  (`expect: 'packet'` or `'none'`, plus `expectSku` / `expectTitle` to turn on
+  end-to-end checks). See the comment at the top of that file.
+
+- **Pure-logic checks** — `node test/logic-checks.mjs` runs fast assertions
+  over the OpenCV-free scoring/ordering functions (`scoreCandidate`,
+  `orderCorners`). No browser or dependencies needed.
+
 - **Live debug overlay** — open the app with `?debug=1` to see every
   detection candidate (winner green, rejected dim) with its score or reject
-  reason drawn over the camera feed.
+  reason drawn over the camera feed — the tool for tuning the
+  `CONFIG.detection` thresholds on a real phone.
 
 ## Versioning
 
