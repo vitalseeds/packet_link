@@ -6,7 +6,7 @@ import { CONFIG } from '../js/config.js';
 
 // --- Task 1: config keys present with expected starting values ---
 const d = CONFIG.detection;
-assert.equal(d.morphKernelSize, 5);
+assert.equal(d.morphKernelSize, 3);
 assert.deepEqual(d.expectedAspects, [1.39, 1.74]);
 assert.equal(d.aspectTolerance, 0.15);
 assert.equal(d.rectangularityFloor, 0.5);

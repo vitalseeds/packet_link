@@ -107,11 +107,13 @@ export const CONFIG = {
     claheTileGridSize: 8,
     // Morphological-closing kernel side length (px, on the downscaled edge
     // map). Closing = dilate-then-erode: reconnects a packet border broken by
-    // shadow / low contrast / blur into one closed contour, without the
-    // net-thickening plain dilation causes. Raised 3->5 to bridge the larger
-    // gaps seen on busy/low-contrast backgrounds where the border otherwise
-    // fragments and never forms a full-rectangle contour.
-    morphKernelSize: 5,
+    // shadow / low contrast into one closed contour, without the net-thickening
+    // plain dilation causes. Kept at 3: a 5-kernel was tried to bridge the
+    // larger gaps on busy/blurred frames but made recall WORSE — it merged the
+    // clean packets' borders into surrounding texture, losing contours that
+    // worked at 3. Bigger gaps need adaptive threshold / Hough (out of scope),
+    // not a bigger kernel.
+    morphKernelSize: 3,
     // The packet's valid long/short aspect ratios: closed (92x128 -> 1.39)
     // and opened with the flap exposed (92x160 -> 1.74). A candidate must sit
     // within aspectTolerance of one of these to count as a packet — matching
