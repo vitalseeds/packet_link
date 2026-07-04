@@ -1,22 +1,21 @@
-// Finds the packet by looking for its own outline — the largest roughly
-// rectangular contour in the frame — rather than recognising the logo.
-// Simpler and calibration-free: no reference photo, no per-packet-template
-// measurements, just "find an obvious rectangle".
+// Finds the packet by its own outline — a rectangular contour scored on shape,
+// not by matching the logo. Calibration-free: no reference photo, no per-packet
+// template. See docs/superpowers/specs/2026-07-03-improve-rectangle-detection-design.md.
 //
-// Takes CONFIG as a parameter (rather than importing it directly) so every
-// file ends up sharing the exact same cache-busted copy that main.js
-// loaded — see the comment at the top of js/main.js.
+// Takes CONFIG as a parameter (rather than importing it) so every file shares
+// the exact same cache-busted copy main.js loaded — see js/main.js.
 
-// Returns [topLeft, topRight, bottomRight, bottomLeft] in frame pixel space,
-// or null if nothing rectangular enough was found.
-export function detect(frameMat, CONFIG) {
-  // Canny/dilate/findContours all cost roughly linearly in pixel count, but
-  // "is there a big rectangle here" doesn't need full sensor resolution —
-  // search on a downscaled copy and rescale the result back up, so this
-  // function's contract (full-frame-space in, full-frame-space out) is
-  // unchanged for every caller.
+// Returns [topLeft, topRight, bottomRight, bottomLeft] in frame pixel space, or
+// null if nothing rectangular enough was found. `diagnostics` (optional) is
+// filled with { candidates, winnerIndex } for the harness / debug overlay.
+export function detect(frameMat, CONFIG, diagnostics) {
+  const d = CONFIG.detection;
+
+  // Search on a downscaled copy — "is there a big rectangle here" doesn't need
+  // full sensor resolution — then rescale corners back so the contract
+  // (full-frame in, full-frame out) is unchanged.
   const longSide = Math.max(frameMat.rows, frameMat.cols);
-  const scale = Math.min(1, CONFIG.detection.detectScaleMaxDim / longSide);
+  const scale = Math.min(1, d.detectScaleMaxDim / longSide);
   let workMat = frameMat;
   if (scale < 1) {
     workMat = new cv.Mat();
@@ -30,98 +29,143 @@ export function detect(frameMat, CONFIG) {
     );
   }
 
+  const edges = preprocess(workMat, CONFIG);
+  const frameArea = workMat.rows * workMat.cols;
+  const candidates = extractCandidates(edges, frameArea, CONFIG);
+  edges.delete();
+
+  // INTERIM selection (behaviour-preserving): largest in-range area wins.
+  // Task 7 replaces this block with scoreCandidate-based selection.
+  let best = null;
+  let bestArea = 0;
+  let winnerIndex = null;
+  candidates.forEach((c, i) => {
+    if (
+      c.areaFraction > d.minAreaFraction &&
+      c.areaFraction < d.maxAreaFraction &&
+      c.area > bestArea
+    ) {
+      bestArea = c.area;
+      best = c;
+      winnerIndex = i;
+    }
+  });
+
+  if (workMat !== frameMat) workMat.delete();
+
+  const rescale = scale < 1 ? (p) => ({ x: p.x / scale, y: p.y / scale }) : (p) => p;
+  if (diagnostics) {
+    diagnostics.candidates = candidates.map((c) => ({ ...c, corners: c.corners.map(rescale) }));
+    diagnostics.winnerIndex = winnerIndex;
+  }
+  return best ? orderCorners(best.corners.map(rescale)) : null;
+}
+
+// Grayscale -> optional CLAHE -> blur -> Canny -> morphological close. Returns
+// the closed edge Mat; the caller owns and deletes it.
+function preprocess(workMat, CONFIG) {
+  const d = CONFIG.detection;
   const gray = new cv.Mat();
   cv.cvtColor(workMat, gray, cv.COLOR_RGBA2GRAY);
 
-  // Contrast-limited adaptive histogram equalization: helps a faint true
-  // packet edge hold up against weak/uneven contrast (e.g. outdoors),
-  // before it has a chance to lose out to the packet's own printed inner
-  // border (see the RETR_EXTERNAL comment below).
-  if (CONFIG.detection.useClahe) {
-    applyClahe(gray, CONFIG.detection.claheClipLimit, CONFIG.detection.claheTileGridSize);
+  if (d.useClahe) {
+    applyClahe(gray, d.claheClipLimit, d.claheTileGridSize);
   }
 
   const blurred = new cv.Mat();
   cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
 
   const edges = new cv.Mat();
-  cv.Canny(blurred, edges, CONFIG.detection.cannyLow, CONFIG.detection.cannyHigh);
+  cv.Canny(blurred, edges, d.cannyLow, d.cannyHigh);
 
-  // Morphological closing (dilate-then-erode) so broken/anti-aliased edge
-  // segments — including an outer edge cut by the phone's own shadow — rejoin
-  // into closed contours, WITHOUT the net-thickening that plain dilation
-  // causes (which drags corners inward and merges the edge with clutter).
+  // Closing (dilate-then-erode) reconnects edges broken by the phone's own
+  // shadow without the net-thickening plain dilation causes.
   const closed = new cv.Mat();
-  const kernel = cv.Mat.ones(CONFIG.detection.morphKernelSize, CONFIG.detection.morphKernelSize, cv.CV_8U);
+  const kernel = cv.Mat.ones(d.morphKernelSize, d.morphKernelSize, cv.CV_8U);
   cv.morphologyEx(edges, closed, cv.MORPH_CLOSE, kernel);
-
-  // RETR_EXTERNAL only, not RETR_LIST: the packet has a printed decorative
-  // border inset slightly from its physical edge, which is itself a
-  // rectangle. RETR_LIST would offer that inner border as a candidate
-  // alongside the true outer edge — normally harmless since the outer
-  // edge is larger and wins, but if the true outer edge doesn't form one
-  // clean contour (weak contrast against the background), the reliably
-  // strong inner border can end up as the largest valid candidate instead,
-  // i.e. locking onto a sub-rectangle of the packet. RETR_EXTERNAL ignores
-  // nested contours entirely, so that inner border is never a candidate.
-  const contours = new cv.MatVector();
-  const hierarchy = new cv.Mat();
-  cv.findContours(closed, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-  const frameArea = workMat.rows * workMat.cols;
-  let best = null;
-  let bestArea = 0;
-
-  for (let i = 0; i < contours.size(); i++) {
-    const contour = contours.get(i);
-    const perimeter = cv.arcLength(contour, true);
-    const approx = new cv.Mat();
-    cv.approxPolyDP(contour, approx, CONFIG.detection.approxEpsilon * perimeter, true);
-
-    if (approx.rows === 4 && cv.isContourConvex(approx)) {
-      const area = cv.contourArea(approx);
-      const areaFraction = area / frameArea;
-      if (
-        areaFraction > CONFIG.detection.minAreaFraction &&
-        areaFraction < CONFIG.detection.maxAreaFraction &&
-        area > bestArea
-      ) {
-        bestArea = area;
-        best = orderCorners(matToPoints(approx));
-      }
-    }
-
-    approx.delete();
-    contour.delete();
-  }
 
   gray.delete();
   blurred.delete();
   edges.delete();
-  closed.delete();
   kernel.delete();
-  contours.delete();
-  hierarchy.delete();
-
-  if (workMat !== frameMat) {
-    workMat.delete();
-    if (best) {
-      best = best.map((p) => ({ x: p.x / scale, y: p.y / scale }));
-    }
-  }
-
-  return best;
+  return closed;
 }
 
-// OpenCV.js builds have exposed CLAHE under two different names across
-// versions (`cv.CLAHE` as a constructor vs. a `cv.createCLAHE` factory) —
-// tolerate either rather than assuming one, in-place on `mat`.
-function applyClahe(mat, clipLimit, tileGridSize) {
-  const tileSize = new cv.Size(tileGridSize, tileGridSize);
-  const clahe =
-    typeof cv.CLAHE === 'function' ? new cv.CLAHE(clipLimit, tileSize) : cv.createCLAHE(clipLimit, tileSize);
-  clahe.apply(mat, mat);
-  clahe.delete();
+// Builds a plain-JS feature object for every external contour that reduces to
+// a convex quad. Corners are the TRUE quad from reduceToQuad; rectangularity
+// and aspect come from minAreaRect (used for scoring ONLY, never as warp
+// corners — a rotated bounding box would distort an angled packet).
+//
+// RETR_EXTERNAL (not RETR_LIST/RETR_TREE): the packet has a printed decorative
+// inner border that is itself a rectangle. RETR_EXTERNAL ignores nested
+// contours so that inner border is never a candidate.
+function extractCandidates(edges, frameArea, CONFIG) {
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+  cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+  const candidates = [];
+  for (let i = 0; i < contours.size(); i++) {
+    const contour = contours.get(i);
+    const corners = reduceToQuad(contour, CONFIG);
+    if (corners) {
+      const area = polygonArea(corners);
+      const rr = cv.minAreaRect(contour);
+      const rectArea = rr.size.width * rr.size.height;
+      const longSide = Math.max(rr.size.width, rr.size.height);
+      const shortSide = Math.min(rr.size.width, rr.size.height);
+      candidates.push({
+        corners,
+        area,
+        areaFraction: area / frameArea,
+        rectangularity: rectArea > 0 ? area / rectArea : 0,
+        aspect: shortSide > 0 ? longSide / shortSide : 0,
+        // reduceToQuad only returns convex quads, so this is always true; kept
+        // explicit so scoreCandidate stays a self-contained pure function.
+        convex: true,
+      });
+    }
+    contour.delete();
+  }
+
+  contours.delete();
+  hierarchy.delete();
+  return candidates;
+}
+
+// Reduces a contour to exactly 4 convex corner points, tolerating outlines that
+// approxPolyDP renders as 5-6 points at the base epsilon by sweeping epsilon
+// upward. Returns [{x,y}*4] or null. This is the source of the WARP corners.
+function reduceToQuad(contour, CONFIG) {
+  const d = CONFIG.detection;
+  const hull = new cv.Mat();
+  cv.convexHull(contour, hull, false, true);
+  const perimeter = cv.arcLength(hull, true);
+
+  let result = null;
+  const approx = new cv.Mat();
+  for (let step = 0; step < d.reduceEpsilonSteps; step++) {
+    const epsilon = d.approxEpsilon * perimeter * (1 + step * 0.5);
+    cv.approxPolyDP(hull, approx, epsilon, true);
+    if (approx.rows === 4 && cv.isContourConvex(approx)) {
+      result = matToPoints(approx);
+      break;
+    }
+  }
+  approx.delete();
+  hull.delete();
+  return result;
+}
+
+// Shoelace polygon area of ordered/unordered simple-quad points (absolute).
+function polygonArea(pts) {
+  let sum = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const q = pts[(i + 1) % pts.length];
+    sum += p.x * q.y - q.x * p.y;
+  }
+  return Math.abs(sum) / 2;
 }
 
 // Pure scoring of one candidate's features against CONFIG — no OpenCV, so it
@@ -172,4 +216,14 @@ export function orderCorners(pts) {
   const dTo = (p) => Math.hypot(p.x - tl.x, p.y - tl.y);
   const [tr, br] = dTo(right[0]) < dTo(right[1]) ? [right[0], right[1]] : [right[1], right[0]];
   return [tl, tr, br, bl];
+}
+
+// OpenCV.js builds expose CLAHE under two names across versions — tolerate
+// either, in-place on `mat`.
+function applyClahe(mat, clipLimit, tileGridSize) {
+  const tileSize = new cv.Size(tileGridSize, tileGridSize);
+  const clahe =
+    typeof cv.CLAHE === 'function' ? new cv.CLAHE(clipLimit, tileSize) : cv.createCLAHE(clipLimit, tileSize);
+  clahe.apply(mat, mat);
+  clahe.delete();
 }
