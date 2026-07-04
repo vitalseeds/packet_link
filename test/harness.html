@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Packet detection harness</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1rem; background: #111; color: #eee; }
+    h1 { font-size: 1.2rem; }
+    #summary { font-size: 1.1rem; font-weight: bold; margin: 0.5rem 0 1rem; }
+    .grid { display: flex; flex-wrap: wrap; gap: 1rem; }
+    .card { border: 1px solid #333; padding: 0.5rem; border-radius: 6px; max-width: 320px; }
+    .card canvas { max-width: 300px; height: auto; display: block; background: #000; }
+    .pass { color: #2ecc71; } .fail { color: #e74c3c; }
+    .scores { font-size: 0.8rem; white-space: pre-wrap; color: #aaa; }
+    #report { width: 100%; box-sizing: border-box; height: 20rem; margin-bottom: 1rem;
+      background: #000; color: #ddd; font-family: monospace; font-size: 0.8rem;
+      border: 1px solid #333; border-radius: 6px; padding: 0.5rem; }
+    .hint { font-size: 0.85rem; color: #aaa; margin: 0 0 0.25rem; }
+    .confirm { display: block; margin-top: 0.4rem; font-size: 0.8rem; color: #ddd; cursor: pointer; }
+    .confirm input { margin-right: 0.35rem; vertical-align: middle; }
+    summary { cursor: pointer; font-size: 0.8rem; color: #888; margin-top: 0.4rem; }
+  </style>
+</head>
+<body>
+  <h1>Packet detection harness</h1>
+  <p id="status">Loading OpenCV…</p>
+  <div id="summary"></div>
+  <p class="hint">Copyable report — click inside the box, select all (Ctrl/Cmd-A), copy, and paste it back:</p>
+  <textarea id="report" readonly placeholder="report appears here when the run finishes…"></textarea>
+  <div id="grid" class="grid"></div>
+
+  <script>
+    // OpenCV.js signals readiness through Module.onRuntimeInitialized; wrap it
+    // in a promise the module script below can await.
+    window.cvReady = new Promise((resolve) => {
+      window.Module = { onRuntimeInitialized: () => resolve() };
+    });
+  </script>
+  <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <script type="module">
+    await window.cvReady;
+    const { CONFIG, VERSION } = await import('../js/config.js');
+    const { detect } = await import('../js/rectDetector.js');
+    const { SAMPLES } = await import('./manifest.js');
+    const geometry = await import('../js/packetGeometry.js');
+    const { initOcr, recognizeSkuText, recognizeTitleText } = await import('../js/ocr.js');
+    const { extractSku } = await import('../js/sku.js');
+    const { extractTitle } = await import('../js/title.js');
+
+    const grid = document.getElementById('grid');
+    const statusEl = document.getElementById('status');
+    const summaryEl = document.getElementById('summary');
+    const reportEl = document.getElementById('report');
+
+    // Per-sample records for the (re)buildable report. Each holds the auto
+    // report line plus an optional manual-accuracy checkbox (present only when
+    // a quad was drawn, i.e. there is something to visually confirm).
+    const records = [];
+
+    // Winning candidate's score for the report, or '-' if none was selected.
+    function winnerScore(diagnostics) {
+      const w = diagnostics && diagnostics.winnerIndex != null
+        ? diagnostics.candidates[diagnostics.winnerIndex] : null;
+      return w ? w.score.toFixed(3) : '-';
+    }
+
+    // Why did a MISSED packet fail? Report the largest-area candidate (the best
+    // guess at the packet) and the gate that rejected it — 'no quad candidates'
+    // means the edge/contour stage found nothing quad-shaped at all.
+    function missReason(diagnostics) {
+      const cands = (diagnostics && diagnostics.candidates) || [];
+      if (!cands.length) return 'no quad candidates';
+      // Highest-scoring candidate = the best packet guess; its rejectReason (or
+      // 'belowMinScore') is why the frame counted as a miss.
+      const c = cands.reduce((a, b) => (b.score > a.score ? b : a));
+      return `reject=${c.rejectReason || '—'} score=${c.score.toFixed(3)} aspect=${c.aspect.toFixed(2)} ` +
+        `rect=${c.rectangularity.toFixed(2)} areaFrac=${c.areaFraction.toFixed(2)} (of ${cands.length})`;
+    }
+
+    // Compact shape profile of the winning candidate, for detected/false-detect
+    // report lines: [aspect rect areaFrac].
+    function winnerInfo(diagnostics) {
+      const w = diagnostics && diagnostics.winnerIndex != null
+        ? diagnostics.candidates[diagnostics.winnerIndex] : null;
+      return w ? `[a${w.aspect.toFixed(2)} r${w.rectangularity.toFixed(2)} f${w.areaFraction.toFixed(2)}]` : '';
+    }
+
+    // Draw the detected quad (green) over a frame on a display canvas.
+    function drawResult(srcCanvas, corners) {
+      const c = document.createElement('canvas');
+      c.width = srcCanvas.width; c.height = srcCanvas.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(srcCanvas, 0, 0);
+      if (corners) {
+        ctx.strokeStyle = '#2ecc71'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(corners[0].x, corners[0].y);
+        for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i].x, corners[i].y);
+        ctx.closePath(); ctx.stroke();
+      }
+      return c;
+    }
+
+    function renderCard(title, srcCanvas, corners, diagnostics, passed) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      const h = document.createElement('div');
+      h.innerHTML = `<strong>${title}</strong> — ` +
+        `<span class="${passed ? 'pass' : 'fail'}">${passed ? 'PASS' : 'FAIL'}</span>`;
+      card.appendChild(h);
+      card.appendChild(drawResult(srcCanvas, corners));
+
+      // Per-candidate scores, collapsed by default (RETR_LIST can produce
+      // hundreds/thousands on a busy background) and capped to the top 25 by
+      // score so the DOM stays light — the winner and the strongest rejects.
+      const cands = diagnostics.candidates || [];
+      const winner = diagnostics.winnerIndex != null ? cands[diagnostics.winnerIndex] : null;
+      const details = document.createElement('details');
+      const summary = document.createElement('summary');
+      summary.textContent = `candidates: ${cands.length}`;
+      details.appendChild(summary);
+      const scores = document.createElement('div');
+      scores.className = 'scores';
+      scores.textContent = [...cands]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 25)
+        .map((c) => {
+          const tag = c === winner ? '* ' : '  ';
+          const s = c.score !== undefined ? c.score.toFixed(3) : '-';
+          const reason = c.rejectReason ? ` (${c.rejectReason})` : '';
+          return `${tag}score ${s} aspect ${c.aspect.toFixed(2)} rect ${c.rectangularity.toFixed(2)}${reason}`;
+        })
+        .join('\n');
+      details.appendChild(scores);
+      card.appendChild(details);
+      grid.appendChild(card);
+    }
+
+    // Run detect() over one RGBA source canvas; returns { corners, diagnostics }.
+    function runDetect(srcCanvas) {
+      const mat = cv.imread(srcCanvas);
+      const diagnostics = {};
+      const corners = detect(mat, CONFIG, diagnostics);
+      mat.delete();
+      return { corners, diagnostics };
+    }
+
+    // Full pipeline for one sample: detect, then (if a packet was found and the
+    // sample declares expected OCR outputs) warp/crop/OCR/extract — mirroring
+    // js/main.js handleStableDetection. Returns { corners, diagnostics, sku,
+    // title }. Detection-only samples skip the OCR half.
+    async function runFullPipeline(srcCanvas, sample) {
+      const mat = cv.imread(srcCanvas);
+      const diagnostics = {};
+      const corners = detect(mat, CONFIG, diagnostics);
+      let sku = null, title = null;
+      const wantsOcr = sample && (sample.expectSku || sample.expectTitle);
+      if (corners && wantsOcr) {
+        const expanded = geometry.expandCorners(corners, CONFIG.output.cornerMarginPercent);
+        const straight = geometry.warpPacketToCanvas(mat, expanded, CONFIG);
+        const skuRect = geometry.remapCropForMargin(CONFIG.skuCrop, CONFIG.output.cornerMarginPercent);
+        const titleRect = geometry.remapCropForMargin(CONFIG.titleCrop, CONFIG.output.cornerMarginPercent);
+        const skuOcr = geometry.preprocessForOcr(geometry.cropRegion(straight, skuRect, CONFIG.skuCropUpscale), CONFIG.ocr);
+        const titleOcr = geometry.preprocessForOcr(geometry.cropRegion(straight, titleRect), CONFIG.ocr);
+        sku = extractSku(await recognizeSkuText(skuOcr));
+        title = extractTitle(await recognizeTitleText(titleOcr));
+      }
+      mat.delete();
+      return { corners, diagnostics, sku, title };
+    }
+
+    // Normalize titles for comparison (case + whitespace insensitive).
+    const normTitle = (s) => (s || '').toUpperCase().replace(/\s+/g, ' ').trim();
+
+    // Synthetic smoke frame: a light rounded rectangle (~1.39 aspect) on a dark
+    // background. Deterministic, needs no captured photo — exercises the whole
+    // OpenCV pipeline so this harness is useful before real samples exist.
+    function makeSyntheticFrame() {
+      const c = document.createElement('canvas');
+      c.width = 300; c.height = 420;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.fillStyle = '#e8e4d8';
+      ctx.fillRect(40, 40, 220, 306); // 220x306 -> aspect 1.39 (the closed-packet ratio)
+      return c;
+    }
+
+    let positivesTotal = 0, positivesDetected = 0, falseDetections = 0;
+    let skuTotal = 0, skuCorrect = 0, titleTotal = 0, titleCorrect = 0;
+
+    // Load OCR only if some sample actually asks for end-to-end checks.
+    const needsOcr = SAMPLES.some((s) => s.expectSku || s.expectTitle);
+    if (needsOcr) { statusEl.textContent = 'Loading OCR…'; await initOcr(); }
+    statusEl.textContent = 'Running…';
+
+    // Load an image file from test/samples/ onto an RGBA canvas.
+    async function loadSample(file) {
+      const img = new Image();
+      img.src = `samples/${file}`;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      return c;
+    }
+
+    // Append SKU/title check lines to a card and update the tallies.
+    function appendOcr(cardTitle, sample, res) {
+      const parts = [];
+      if (sample.expectSku) {
+        skuTotal++;
+        const ok = res.sku === sample.expectSku;
+        if (ok) skuCorrect++;
+        parts.push(`SKU ${ok ? '✓' : '✗'} got "${res.sku ?? '—'}" want "${sample.expectSku}"`);
+      }
+      if (sample.expectTitle) {
+        titleTotal++;
+        const ok = normTitle(res.title) === normTitle(sample.expectTitle);
+        if (ok) titleCorrect++;
+        parts.push(`title ${ok ? '✓' : '✗'} got "${res.title ?? '—'}" want "${sample.expectTitle}"`);
+      }
+      return parts.join('\n');
+    }
+
+    // A manual-accuracy checkbox for a card that drew a quad — lets a human
+    // confirm the green box actually sits on the packet (a detection PASS only
+    // means *a* quad was found, not that it is correct). Toggling rebuilds the
+    // report so the confirmation is captured in the copy-pasteable text.
+    function addAccuracyCheckbox(card) {
+      const label = document.createElement('label');
+      label.className = 'confirm';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.addEventListener('change', buildReport);
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(' quad accurate (manual check)'));
+      card.appendChild(label);
+      return cb;
+    }
+
+    // (Re)build the summary line and copy-pasteable report from the fixed run
+    // tallies plus the current checkbox states. Called once when the run ends,
+    // then again on every manual-confirmation toggle.
+    function buildReport() {
+      const d = CONFIG.detection;
+      const ocrSummary = (skuTotal || titleTotal)
+        ? ` · SKU correct ${skuCorrect}/${skuTotal} · title correct ${titleCorrect}/${titleTotal}`
+        : '';
+      const confirmable = records.filter((r) => r.checkbox).length;
+      const confirmed = records.filter((r) => r.checkbox && r.checkbox.checked).length;
+      const summaryText =
+        `positives detected ${positivesDetected}/${positivesTotal} · false detections ${falseDetections}` +
+        `${ocrSummary} · manually-confirmed accurate ${confirmed}/${confirmable}`;
+      summaryEl.textContent = summaryText;
+      const configLine =
+        `config v${VERSION}: aspectTolerance=${d.aspectTolerance} rectangularityFloor=${d.rectangularityFloor}` +
+        ` minScore=${d.minScore} weights=${JSON.stringify(d.scoreWeights)} morphKernel=${d.morphKernelSize}` +
+        ` expectedAspects=${JSON.stringify(d.expectedAspects)}`;
+      const lines = records.map((r) =>
+        r.autoLine + (r.checkbox ? `  [manual: ${r.checkbox.checked ? '✓ accurate' : '· unconfirmed'}]` : ''));
+      reportEl.value = ['=== packet detection harness report ===', summaryText, configLine, '', ...lines].join('\n');
+    }
+
+    // Smoke test first (detection-only positive).
+    const smoke = makeSyntheticFrame();
+    const smokeRes = runDetect(smoke);
+    positivesTotal++;
+    if (smokeRes.corners) positivesDetected++;
+    renderCard('synthetic smoke', smoke, smokeRes.corners, smokeRes.diagnostics, !!smokeRes.corners);
+    records.push({
+      autoLine: smokeRes.corners
+        ? `[PASS] synthetic-smoke  detected score ${winnerScore(smokeRes.diagnostics)}`
+        : `[FAIL] synthetic-smoke  MISSED`,
+      checkbox: smokeRes.corners ? addAccuracyCheckbox(grid.lastChild) : null,
+    });
+
+    // Then every manifest sample.
+    for (const s of SAMPLES) {
+      let srcCanvas;
+      try {
+        srcCanvas = await loadSample(s.file);
+      } catch (err) {
+        renderCard(`${s.file} (load error)`, makeSyntheticFrame(), null, {}, false);
+        records.push({ autoLine: `[FAIL] ${s.file}  LOAD-ERROR`, checkbox: null });
+        continue;
+      }
+      const res = await runFullPipeline(srcCanvas, s);
+      const detected = !!res.corners;
+      let passed;
+      if (s.expect === 'packet') {
+        positivesTotal++;
+        if (detected) positivesDetected++;
+        passed = detected;
+      } else {
+        if (detected) falseDetections++;
+        passed = !detected;
+      }
+      renderCard(`${s.file} — ${s.note || s.expect}`, srcCanvas, res.corners, res.diagnostics, passed);
+      if (s.expect === 'packet' && (s.expectSku || s.expectTitle)) {
+        const ocrLine = document.createElement('div');
+        ocrLine.className = 'scores';
+        ocrLine.textContent = appendOcr(s.file, s, res);
+        grid.lastChild.appendChild(ocrLine);
+      }
+
+      // One compact report line per sample.
+      let autoLine;
+      if (s.expect === 'packet') {
+        if (!detected) {
+          autoLine = `[FAIL] ${s.file}  MISSED  (${missReason(res.diagnostics)})`;
+        } else {
+          let skuPart = '';
+          if (s.expectSku) {
+            const ok = res.sku === s.expectSku;
+            skuPart = `  SKU ${ok ? '✓' : '✗'} "${res.sku ?? '—'}"${ok ? '' : ` want "${s.expectSku}"`}`;
+          }
+          let titlePart = '';
+          if (s.expectTitle) {
+            const ok = normTitle(res.title) === normTitle(s.expectTitle);
+            titlePart = `  title ${ok ? '✓' : '✗'} "${res.title ?? '—'}"${ok ? '' : ` want "${s.expectTitle}"`}`;
+          }
+          autoLine = `[${passed ? 'PASS' : 'FAIL'}] ${s.file}  detected score ${winnerScore(res.diagnostics)} ${winnerInfo(res.diagnostics)}${skuPart}${titlePart}`;
+        }
+      } else {
+        autoLine = detected
+          ? `[FAIL] ${s.file}  FALSE-DETECT score ${winnerScore(res.diagnostics)} ${winnerInfo(res.diagnostics)}`
+          : `[PASS] ${s.file}  correctly-rejected`;
+      }
+      records.push({ autoLine, checkbox: detected ? addAccuracyCheckbox(grid.lastChild) : null });
+    }
+
+    buildReport();
+    console.log(reportEl.value);
+    statusEl.textContent = 'Done.';
+  </script>
+</body>
+</html>

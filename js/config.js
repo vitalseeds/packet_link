@@ -3,7 +3,7 @@
 
 // Bumped on every merge to main and tagged on that commit (e.g. `v0.1.0`),
 // so the footer on the deployed page tells you which build you're on.
-export const VERSION = '0.5.5';
+export const VERSION = '0.6.0';
 
 export const CONFIG = {
   // Where the SKU sits on a straightened packet (top-left origin box, as a
@@ -105,6 +105,50 @@ export const CONFIG = {
     useClahe: false,
     claheClipLimit: 2.0,
     claheTileGridSize: 8,
+    // Morphological-closing kernel side length (px, on the downscaled edge
+    // map). Closing = dilate-then-erode: reconnects a packet border broken by
+    // shadow / low contrast into one closed contour, without the net-thickening
+    // plain dilation causes. Kept at 3: a 5-kernel was tried to bridge the
+    // larger gaps on busy/blurred frames but made recall WORSE — it merged the
+    // clean packets' borders into surrounding texture, losing contours that
+    // worked at 3. Bigger gaps need adaptive threshold / Hough (out of scope),
+    // not a bigger kernel.
+    morphKernelSize: 3,
+    // The packet's valid long/short aspect ratios: closed (92x128 -> 1.39)
+    // and opened with the flap exposed (92x160 -> 1.74). A candidate must sit
+    // within aspectTolerance of one of these to count as a packet — matching
+    // two discrete ratios keeps the gate far tighter than one wide band,
+    // which would wave through books/A4/tablets (~1.3-1.5).
+    expectedAspects: [1.39, 1.74],
+    // How far a candidate's aspect may sit from the NEAREST expectedAspects
+    // entry and still pass / still score. Wide enough to absorb perspective
+    // foreshortening; tighten only if false positives appear.
+    aspectTolerance: 0.15,
+    // Sanity floor on how much of its own minAreaRect a candidate's quad fills
+    // (contourArea / minAreaRectArea) — only excludes grossly non-rectangular
+    // shapes (L/triangle-like). Rectangularity is primarily a SCORE signal
+    // (see scoreWeights), not a hard gate: a high floor here double-penalised
+    // it and was rejecting real but slightly-ragged packets (blur, an opened
+    // flap). Accept/reject confidence is enforced by minScore below instead.
+    rectangularityFloor: 0.5,
+    // reduceToQuad sweeps approxPolyDP's epsilon upward from approxEpsilon
+    // across this many steps, trying to land on exactly 4 corners before
+    // giving up — so a wobbly outline that approximates to 5-6 points still
+    // resolves to a quad instead of being discarded.
+    reduceEpsilonSteps: 6,
+    // Weights blending a candidate's score (see scoreCandidate). Area kept as
+    // a modest factor so the big obvious rectangle is still preferred, with
+    // rectangularity/aspect breaking ties and rejecting wrong-shaped big
+    // things. Replacing area-alone selection is what stops the frame-to-frame
+    // flicker that resets the stability counter.
+    scoreWeights: { rect: 0.5, aspect: 0.3, area: 0.2 },
+    // Absolute confidence floor: the best-scoring candidate must reach this or
+    // the frame is treated as "no packet". This is the real accept/reject
+    // knob (rectangularityFloor is now just a sanity gate). Tuned so a
+    // near-square/low-aspect distractor like a tablet (~0.52) is rejected
+    // while genuine packets (lowest observed ~0.58) pass — raise it to reject
+    // more borderline objects, lower it to catch weaker packets.
+    minScore: 0.55,
   },
 
   // Preprocessing applied to the SKU/title crops before OCR (see
